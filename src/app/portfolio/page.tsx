@@ -19,10 +19,9 @@ import { formatNumber, formatPrice } from "@/lib/format";
 import { getQuotes } from "@/lib/market/data";
 import { UNIVERSE } from "@/lib/market/universe";
 import { readPaperState, resetPaperAction, tradeAction } from "@/app/portfolio/actions";
+import { STARTING_CASH } from "@/app/portfolio/paper";
 
 export const metadata: Metadata = { title: "组合" };
-
-const STARTING_CASH = 1_000_000;
 
 export default async function PortfolioPage() {
   const [state, { quotes }] = await Promise.all([

@@ -4,22 +4,9 @@ import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { getQuotes } from "@/lib/market/data";
 import { isAllowedSymbol } from "@/lib/market/universe";
+import { EMPTY_PAPER, type PaperState } from "@/app/portfolio/paper";
 
 const COOKIE = "lh-quant-paper";
-const STARTING_CASH = 1_000_000;
-
-export type PaperPosition = { symbol: string; quantity: number; avgPrice: number };
-export type PaperOrder = {
-  id: string;
-  time: number;
-  symbol: string;
-  side: "buy" | "sell";
-  quantity: number;
-  price: number;
-};
-export type PaperState = { cash: number; positions: PaperPosition[]; orders: PaperOrder[] };
-
-export const EMPTY_PAPER: PaperState = { cash: STARTING_CASH, positions: [], orders: [] };
 
 export async function readPaperState(): Promise<PaperState> {
   const store = await cookies();
