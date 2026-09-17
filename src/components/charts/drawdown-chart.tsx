@@ -1,7 +1,3 @@
-"use client";
-
-import { useEffect, useRef } from "react";
-import { AreaSeries, ColorType, createChart, type IChartApi, type UTCTimestamp } from "lightweight-charts";
 import type { EquityPoint } from "@/lib/quant/types";
 
 export function DrawdownChart({
@@ -11,55 +7,30 @@ export function DrawdownChart({
   equity: EquityPoint[];
   height?: number;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
+  if (equity.length < 2) {
+    return <div className="text-sm text-muted-foreground" style={{ height }} />;
+  }
+  const width = 1100;
+  const pad = { l: 12, r: 72, t: 12, b: 20 };
+  const values = equity.map((p) => p.drawdown * 100);
+  const min = Math.min(...values, 0);
+  const max = Math.max(...values, 0);
+  const span = max - min || 1;
+  const plotW = width - pad.l - pad.r;
+  const plotH = height - pad.t - pad.b;
+  const xAt = (i: number) => pad.l + (i / (equity.length - 1)) * plotW;
+  const yAt = (value: number) => pad.t + ((max - value) / span) * plotH;
+  const line = values.map((value, i) => `${xAt(i).toFixed(2)},${yAt(value).toFixed(2)}`).join(" ");
+  const area = `${xAt(0).toFixed(2)},${yAt(0).toFixed(2)} ${line} ${xAt(values.length - 1).toFixed(2)},${yAt(0).toFixed(2)}`;
 
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || equity.length === 0) return;
-    let chart: IChartApi | null = null;
-    let raf = 0;
-    const mount = () => {
-      if (chart || el.clientWidth === 0) {
-        if (!chart && el.clientWidth === 0) raf = requestAnimationFrame(mount);
-        return;
-      }
-      chart = createChart(el, {
-        width: el.clientWidth,
-        height,
-        layout: {
-          background: { type: ColorType.Solid, color: "transparent" },
-          textColor: "rgba(228,228,228,0.72)",
-          fontFamily: "Geist Mono, ui-monospace, monospace",
-          fontSize: 11,
-        },
-        grid: {
-          vertLines: { color: "rgba(255,255,255,0.04)" },
-          horzLines: { color: "rgba(255,255,255,0.04)" },
-        },
-        rightPriceScale: { borderColor: "rgba(255,255,255,0.08)" },
-        timeScale: { borderColor: "rgba(255,255,255,0.08)", timeVisible: false },
-      });
-      const series = chart.addSeries(AreaSeries, {
-        lineColor: "#f87171",
-        topColor: "rgba(248,113,113,0.05)",
-        bottomColor: "rgba(248,113,113,0.28)",
-        lineWidth: 1,
-      });
-      series.setData(equity.map((p) => ({ time: p.time as UTCTimestamp, value: p.drawdown * 100 })));
-      chart.timeScale().fitContent();
-    };
-    const observer = new ResizeObserver(() => {
-      if (!chart) mount();
-      else chart.applyOptions({ width: el.clientWidth, height });
-    });
-    observer.observe(el);
-    mount();
-    return () => {
-      cancelAnimationFrame(raf);
-      observer.disconnect();
-      chart?.remove();
-    };
-  }, [equity, height]);
-
-  return <div ref={ref} className="w-full" style={{ height }} />;
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="h-auto w-full" style={{ minHeight: height }} role="img" aria-label="回撤">
+      <line x1={pad.l} x2={width - pad.r} y1={yAt(0)} y2={yAt(0)} stroke="rgba(255,255,255,0.12)" />
+      <polygon points={area} fill="rgba(248,113,113,0.22)" />
+      <polyline points={line} fill="none" stroke="#f87171" strokeWidth="1.6" />
+      <text x={width - pad.r + 8} y={yAt(min) + 4} fill="rgba(228,228,228,0.55)" fontSize="11" fontFamily="ui-monospace, monospace">
+        {min.toFixed(1)}%
+      </text>
+    </svg>
+  );
 }
