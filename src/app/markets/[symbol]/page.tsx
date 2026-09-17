@@ -1,14 +1,22 @@
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { CandleChart } from "@/components/charts/candle-chart";
 import { MetricCard } from "@/components/market/metric-card";
 import { formatCompact, formatPercent, formatPrice } from "@/lib/format";
 import { getOHLCV } from "@/lib/market/data";
 import { ASSET_CLASS_LABEL, UNIVERSE, getInstrument, isAllowedSymbol } from "@/lib/market/universe";
 import { sma } from "@/lib/quant/indicators";
+
+const CandleChart = dynamic(
+  () => import("@/components/charts/candle-chart").then((mod) => mod.CandleChart),
+  {
+    ssr: false,
+    loading: () => <div className="h-[420px] w-full animate-pulse rounded-md bg-muted" />,
+  },
+);
 
 export const revalidate = 60;
 
@@ -89,7 +97,7 @@ export default async function MarketDetailPage({
           <CardTitle>日线</CardTitle>
           <CardDescription>绿涨红跌，叠加 20 / 60 日均线。</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="min-w-0">
           <CandleChart
             candles={series.candles}
             overlays={[

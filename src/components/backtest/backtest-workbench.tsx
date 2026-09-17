@@ -6,13 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { NativeSelect } from "@/components/ui/native-select";
 import {
   Table,
   TableBody,
@@ -120,87 +114,58 @@ export function BacktestWorkbench({
         </CardHeader>
         <CardContent className="space-y-4">
           <Field label="标的">
-            <Select
-              value={symbol}
-              onValueChange={(value) => {
-                if (value) setSymbol(value);
-              }}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {UNIVERSE.map((item) => (
-                  <SelectItem key={item.symbol} value={item.symbol}>
-                    {item.symbol} · {item.nameZh}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <NativeSelect value={symbol} onChange={(e) => setSymbol(e.target.value)}>
+              {UNIVERSE.map((item) => (
+                <option key={item.symbol} value={item.symbol}>
+                  {item.symbol} · {item.nameZh}
+                </option>
+              ))}
+            </NativeSelect>
           </Field>
           <Field label="区间">
-            <Select
+            <NativeSelect
               value={range}
-              onValueChange={(value) => {
-                if (value && RANGES.includes(value as (typeof RANGES)[number])) {
-                  setRange(value as (typeof RANGES)[number]);
-                }
-              }}
+              onChange={(e) => setRange(e.target.value as (typeof RANGES)[number])}
             >
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {RANGES.map((item) => (
-                  <SelectItem key={item} value={item}>
-                    {RANGE_LABEL[item]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              {RANGES.map((item) => (
+                <option key={item} value={item}>
+                  {RANGE_LABEL[item]}
+                </option>
+              ))}
+            </NativeSelect>
           </Field>
           <Field label="策略">
-            <Select
+            <NativeSelect
               value={strategy}
-              onValueChange={(value) => {
-                const id = value as StrategyId;
+              onChange={(e) => {
+                const id = e.target.value as StrategyId;
                 setStrategy(id);
                 setParams(getStrategy(id).defaults);
               }}
             >
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {STRATEGIES.map((item) => (
-                  <SelectItem key={item.id} value={item.id}>
-                    {item.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              {STRATEGIES.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </NativeSelect>
           </Field>
           <p className="text-xs leading-5 text-muted-foreground">{meta.description}</p>
           {meta.fields.map((field) =>
             field.options ? (
               <Field key={field.key} label={field.label}>
-                <Select
+                <NativeSelect
                   value={String(params[field.key] ?? field.options[0].value)}
-                  onValueChange={(value) =>
-                    setParams((current) => ({ ...current, [field.key]: value ?? "" }))
+                  onChange={(e) =>
+                    setParams((current) => ({ ...current, [field.key]: e.target.value }))
                   }
                 >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {field.options.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  {field.options.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </NativeSelect>
               </Field>
             ) : (
               <Field key={field.key} label={field.label}>
@@ -256,7 +221,7 @@ export function BacktestWorkbench({
             />
             允许做空
           </label>
-          <Button className="w-full" onClick={() => void run()} disabled={busy}>
+          <Button type="button" className="w-full" onClick={() => void run()} disabled={busy}>
             {busy ? "回测中…" : "运行回测"}
           </Button>
         </CardContent>

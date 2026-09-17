@@ -137,10 +137,10 @@ function parseChart(symbol: string, payload: YahooChartResponse): SeriesResult |
 
   const instrument = getInstrument(symbol);
   const meta = result.meta;
-  const last = candles.at(-1)!;
-  const previousClose = meta?.previousClose ?? meta?.chartPreviousClose ?? candles.at(-2)?.close ?? last.open;
-  const price = meta?.regularMarketPrice ?? last.close;
-  const change = price - previousClose;
+    const last = candles.at(-1)!;
+    const previousClose = candles.at(-2)?.close ?? last.open;
+    const price = last.close;
+    const change = price - previousClose;
   return {
     symbol: instrument.symbol,
     name: instrument.nameZh,

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { QuoteTable } from "@/components/market/quote-table";
 import { MetricCard } from "@/components/market/metric-card";
 import { PriceChange } from "@/components/market/price-change";
@@ -91,14 +91,14 @@ export default async function DashboardPage() {
       </div>
 
       <Card>
-        <CardHeader className="flex-row items-center justify-between">
-          <div>
-            <CardTitle>自选</CardTitle>
-            <CardDescription>点击代码进入 K 线与指标。</CardDescription>
-          </div>
-          <Button variant="ghost" size="sm" asChild>
-            <Link href="/markets">全部行情</Link>
-          </Button>
+        <CardHeader>
+          <CardTitle>自选</CardTitle>
+          <CardDescription>点击代码进入 K 线与指标。</CardDescription>
+          <CardAction>
+            <Button variant="ghost" size="sm" asChild>
+              <Link href="/markets">全部行情</Link>
+            </Button>
+          </CardAction>
         </CardHeader>
         <CardContent>
           <QuoteTable quotes={watchlist} sparklines={sparklines} />

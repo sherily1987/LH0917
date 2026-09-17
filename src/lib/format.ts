@@ -2,7 +2,7 @@ const zh = "zh-CN";
 
 export function formatPrice(value: number, currency = "USD"): string {
   if (!Number.isFinite(value)) return "—";
-  const digits = Math.abs(value) >= 100 ? 2 : Math.abs(value) >= 1 ? 2 : 4;
+  const digits = Math.abs(value) > 0 && Math.abs(value) < 1 ? 4 : 2;
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency,

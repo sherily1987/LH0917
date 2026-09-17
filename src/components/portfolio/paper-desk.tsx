@@ -3,16 +3,10 @@
 import { useMemo, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { NativeSelect } from "@/components/ui/native-select";
 import {
   Table,
   TableBody,
@@ -151,7 +145,7 @@ export function PaperDesk({ quotes }: { quotes: Quote[] }) {
           positions,
           orders: [
             {
-              id: crypto.randomUUID(),
+              id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
               time: Date.now(),
               symbol,
               side,
@@ -178,7 +172,7 @@ export function PaperDesk({ quotes }: { quotes: Quote[] }) {
         positions: nextPositions,
         orders: [
           {
-            id: crypto.randomUUID(),
+            id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
             time: Date.now(),
             symbol,
             side,
@@ -217,18 +211,13 @@ export function PaperDesk({ quotes }: { quotes: Quote[] }) {
         <CardContent className="grid gap-3 md:grid-cols-[1fr_140px_auto_auto] md:items-end">
           <div className="space-y-1.5">
             <Label>标的</Label>
-            <Select value={symbol} onValueChange={(value) => value && setSymbol(value)}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {UNIVERSE.map((item) => (
-                  <SelectItem key={item.symbol} value={item.symbol}>
-                    {item.symbol} · {item.nameZh}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <NativeSelect value={symbol} onChange={(e) => setSymbol(e.target.value)}>
+              {UNIVERSE.map((item) => (
+                <option key={item.symbol} value={item.symbol}>
+                  {item.symbol} · {item.nameZh}
+                </option>
+              ))}
+            </NativeSelect>
           </div>
           <div className="space-y-1.5">
             <Label>数量</Label>
@@ -239,8 +228,10 @@ export function PaperDesk({ quotes }: { quotes: Quote[] }) {
               onChange={(e) => setQuantity(Number(e.target.value))}
             />
           </div>
-          <Button onClick={() => trade("buy")}>买入</Button>
-          <Button variant="outline" onClick={() => trade("sell")}>
+          <Button type="button" onClick={() => trade("buy")}>
+            买入
+          </Button>
+          <Button type="button" variant="outline" onClick={() => trade("sell")}>
             卖出
           </Button>
         </CardContent>
@@ -249,14 +240,14 @@ export function PaperDesk({ quotes }: { quotes: Quote[] }) {
       {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
 
       <Card>
-        <CardHeader className="flex-row items-center justify-between">
-          <div>
-            <CardTitle>持仓</CardTitle>
-            <CardDescription>用当前行情标记市值。</CardDescription>
-          </div>
-          <Button variant="ghost" size="sm" onClick={reset}>
-            重置账户
-          </Button>
+        <CardHeader>
+          <CardTitle>持仓</CardTitle>
+          <CardDescription>用当前行情标记市值。</CardDescription>
+          <CardAction>
+            <Button type="button" variant="ghost" size="sm" onClick={reset}>
+              重置账户
+            </Button>
+          </CardAction>
         </CardHeader>
         <CardContent>
           {marked.positions.length === 0 ? (
