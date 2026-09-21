@@ -58,8 +58,8 @@ export default async function DashboardPage() {
         <CardHeader>
           <CardTitle>BTC 决策台</CardTitle>
           <CardDescription>
-            Jev 根据比特币行情快照给出纸上立场，而不是判断你要点哪个菜单。
-            {typesafeConfigured ? "" : " 尚未配置 TYPESAFE_API_KEY 时仍可看指标，不能出判断。"}
+            Jev 盯着比特币现价做纸上判断：大约每 10 秒刷新报价，价格一动或满 45 秒就重判。
+            {typesafeConfigured ? "" : " 尚未配置 TYPESAFE_API_KEY 时仍可看现价，不能出判断。"}
           </CardDescription>
           <CardAction>
             <Button asChild>

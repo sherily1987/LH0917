@@ -11,7 +11,7 @@ import {
   sma,
 } from "@/lib/quant/indicators";
 import { computeTargetPositions, STRATEGIES } from "@/lib/quant/strategies";
-import type { Candle, DataSource } from "@/lib/quant/types";
+import type { Candle, DataSource, Quote } from "@/lib/quant/types";
 import { getInstrument } from "@/lib/market/universe";
 
 export type BtcSnapshot = ReturnType<typeof buildBtcSnapshot>;
@@ -32,6 +32,13 @@ function lastNumber(values: Array<number | null | undefined>): number | null {
 function pctChange(later: number, earlier: number): number | null {
   if (!Number.isFinite(later) || !Number.isFinite(earlier) || earlier === 0) return null;
   return round(((later - earlier) / earlier) * 100, 3);
+}
+
+function closeAtOrBefore(candles: Candle[], unix: number): number | null {
+  for (let i = candles.length - 1; i >= 0; i--) {
+    if (candles[i].time <= unix) return candles[i].close;
+  }
+  return candles[0]?.close ?? null;
 }
 
 function atrPercent(candles: Candle[], period = 14): number | null {
@@ -64,12 +71,18 @@ export function buildBtcSnapshot(input: {
   source: DataSource;
   paper: PaperState;
   traderNote?: string;
+  interval?: string;
+  range?: string;
+  barsLabel?: string;
+  quote?: Quote;
+  nowUnix?: number;
 }) {
   const instrument = getInstrument(BTC_SYMBOL);
   const candles = input.candles;
   const last = candles.at(-1);
-  const prev = candles.at(-2);
-  const close = last?.close ?? instrument.basePrice;
+  const quote = input.quote;
+  const nowUnix = input.nowUnix ?? last?.time ?? Math.floor(Date.now() / 1000);
+  const close = quote?.price && quote.price > 0 ? quote.price : (last?.close ?? instrument.basePrice);
   const closes = candles.map((item) => item.close);
   const highs = candles.map((item) => item.high);
   const lows = candles.map((item) => item.low);
@@ -92,10 +105,11 @@ export function buildBtcSnapshot(input: {
   const lastDonHigh = lastNumber(donchianHigh);
   const lastDonLow = lastNumber(donchianLow);
 
-  const weekAgo = candles.at(-6)?.close;
-  const monthAgo = candles.at(-21)?.close;
-  const yearHigh = highs.length ? Math.max(...highs) : close;
-  const yearLow = lows.length ? Math.min(...lows) : close;
+  const dayAgo = closeAtOrBefore(candles, nowUnix - 86400);
+  const weekAgo = closeAtOrBefore(candles, nowUnix - 7 * 86400);
+  const monthAgo = closeAtOrBefore(candles, nowUnix - 30 * 86400);
+  const windowHigh = highs.length ? Math.max(...highs) : close;
+  const windowLow = lows.length ? Math.min(...lows) : close;
 
   const paperBtc = input.paper.positions.find((item) => item.symbol === BTC_SYMBOL);
   const btcQty = paperBtc?.quantity ?? 0;
@@ -115,7 +129,7 @@ export function buildBtcSnapshot(input: {
         symbol: BTC_SYMBOL,
         name: instrument.name,
         nameZh: instrument.nameZh,
-        bars: "Yahoo BTC-USD daily candles, one year",
+        bars: input.barsLabel ?? "Yahoo BTC-USD bars; last close is the live quote",
       },
       constraints: {
         longOnly: true,
@@ -125,17 +139,25 @@ export function buildBtcSnapshot(input: {
     },
     market: {
       source: input.source,
-      asOfUnix: last?.time ?? null,
+      interval: input.interval ?? "1d",
+      range: input.range ?? "1y",
+      live: Boolean(quote),
+      asOfUnix: nowUnix,
       last: round(close, 2),
-      currency: "USD",
-      change1dPercent: prev ? pctChange(close, prev.close) : null,
+      currency: quote?.currency ?? "USD",
+      change1dPercent:
+        quote?.changePercent != null && Number.isFinite(quote.changePercent)
+          ? round(quote.changePercent * 100, 3)
+          : dayAgo
+            ? pctChange(close, dayAgo)
+            : null,
       return7dPercent: weekAgo ? pctChange(close, weekAgo) : null,
       return30dPercent: monthAgo ? pctChange(close, monthAgo) : null,
-      range52w: {
-        high: round(yearHigh, 2),
-        low: round(yearLow, 2),
-        percentFromHigh: pctChange(close, yearHigh),
-        percentFromLow: pctChange(close, yearLow),
+      window: {
+        high: round(windowHigh, 2),
+        low: round(windowLow, 2),
+        percentFromHigh: pctChange(close, windowHigh),
+        percentFromLow: pctChange(close, windowLow),
       },
     },
     indicators: {

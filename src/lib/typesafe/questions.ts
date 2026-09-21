@@ -6,7 +6,7 @@ export const BTC_SYMBOL = "BTC-USD" as const;
 export const BTC_STANCES = ["buy", "hold", "reduce", "wait"] as const;
 export type BtcStance = (typeof BTC_STANCES)[number];
 
-export const BTC_HORIZONS = ["days", "weeks", "uncertain"] as const;
+export const BTC_HORIZONS = ["hours", "days", "weeks", "uncertain"] as const;
 export type BtcHorizon = (typeof BTC_HORIZONS)[number];
 
 export const BTC_PLAYS = [
@@ -35,10 +35,26 @@ export const BTC_STANCE_LABEL: Record<BtcStance, string> = {
 };
 
 export const BTC_HORIZON_LABEL: Record<BtcHorizon, string> = {
+  hours: "数小时",
   days: "数日波段",
   weeks: "数周持有",
   uncertain: "周期说不清",
 };
+
+/**
+ * Live desk cadence. Jev is still one judgment per request; code decides when to ask again.
+ * These are starting gates for this terminal, not TypeSafe platform defaults.
+ */
+export const BTC_LIVE = {
+  quotePollMs: 10_000,
+  rejudgeAfterMs: 45_000,
+  rejudgeMove: 0.002,
+  attempts: [
+    { range: "1mo", interval: "15m", label: "Yahoo BTC-USD 15-minute bars over one month; last close is the live quote" },
+    { range: "3mo", interval: "1h", label: "Yahoo BTC-USD hourly bars over three months; last close is the live quote" },
+    { range: "1y", interval: "1d", label: "Yahoo BTC-USD daily bars over one year; last close is the live quote" },
+  ],
+} as const;
 
 export const BTC_PLAY_LABEL: Record<BtcPlay, string> = Object.fromEntries([
   ...STRATEGIES.filter((item) => item.id !== "buy-hold").map((item) => [item.id, item.name]),
@@ -54,8 +70,9 @@ const STANCE_CRITERIA = {
 } as const;
 
 const HORIZON_CRITERIA = {
-  days: "A swing of a few daily bars that should be reviewed soon.",
-  weeks: "A multi-week trend or position, not a same-day scalp.",
+  hours: "An intraday hold of a few hours, to be reviewed as new 15-minute bars print.",
+  days: "A swing of a few daily sessions, not a same-hour scalp.",
+  weeks: "A multi-week trend or position.",
   uncertain: "The snapshot does not support a clear holding horizon.",
 } as const;
 
@@ -90,7 +107,7 @@ export function buildBtcQuestions() {
       "How clean and persistent is the BTC trend given `indicators` and `strategySignals`?",
       [
         "No usable trend: overlapping averages, mixed signals, or a tight two-sided range.",
-        "A weak directional bias that could reverse on the next few daily bars.",
+        "A weak directional bias that could reverse on the next few bars.",
         "A readable trend with most listed signals pointing the same way.",
         "A strong, persistent trend with little contradiction among the listed indicators.",
       ],

@@ -7,12 +7,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { MetricCard } from "@/components/market/metric-card";
 import { DeskNoteForm } from "@/components/research/research-form";
 import { DecisionPanel } from "@/components/research/research-trace";
+import { LiveDesk } from "@/components/research/live-desk";
 import { readPaperState } from "@/app/portfolio/actions";
 import { formatNumber, formatPercent, formatPrice } from "@/lib/format";
-import { getOHLCV } from "@/lib/market/data";
 import { describeTypeSafeError, judgeBtcSnapshot } from "@/lib/typesafe/client";
 import { composeBtcDecision, type BtcJudgments } from "@/lib/typesafe/decision";
 import { hasTypeSafeKey } from "@/lib/typesafe/env";
+import { getBtcLiveMarket } from "@/lib/typesafe/live";
 import { BTC_PLAY_LABEL, BTC_SYMBOL, type BtcPlay } from "@/lib/typesafe/questions";
 import { buildBtcSnapshot } from "@/lib/typesafe/snapshot";
 
@@ -49,13 +50,18 @@ export default async function ResearchPage({
   const sp = await searchParams;
   const note = first(sp.note).trim().slice(0, NOTE_MAX);
   const configured = hasTypeSafeKey();
+  const judgedAtMs = Date.now();
 
-  const [series, paper] = await Promise.all([getOHLCV(BTC_SYMBOL, "1y", "1d"), readPaperState()]);
+  const [market, paper] = await Promise.all([getBtcLiveMarket(), readPaperState()]);
   const snapshot = buildBtcSnapshot({
-    candles: series.candles,
-    source: series.source,
+    candles: market.series.candles,
+    source: market.series.source,
     paper,
     traderNote: note,
+    interval: market.interval,
+    range: market.range,
+    barsLabel: market.barsLabel,
+    quote: market.quote,
   });
 
   let error: string | null = null;
@@ -81,14 +87,17 @@ export default async function ResearchPage({
         <div>
           <h1 className="text-2xl font-medium">BTC 决策</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Jev 不负责点哪里。代码先算出比特币指标和策略信号，Jev 给出纸上立场，你确认后才改模拟组合。
+            现价大约每 10 秒刷新。价格波动超过 0.2% 或满 45 秒，就用最新快照再问一次 Jev。不是交易所逐笔推送。
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant="outline">{series.source === "yahoo" ? "Yahoo 实时" : "演示数据"}</Badge>
+          <Badge variant="outline">{market.series.source === "yahoo" ? "Yahoo 实时" : "演示数据"}</Badge>
+          <Badge variant="outline">{market.interval}</Badge>
           <Badge variant="outline">{configured ? "TypeSafe 已配置" : "等待密钥"}</Badge>
         </div>
       </div>
+
+      <LiveDesk judgedPrice={snapshot.market.last} judgedAtMs={judgedAtMs} interval={market.interval} />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <MetricCard
@@ -144,7 +153,7 @@ export default async function ResearchPage({
         <CardHeader>
           <CardTitle>本终端算出的快照</CardTitle>
           <CardDescription>
-            这些数字不经过 Jev。Jev 只看这份状态，回答立场、策略贴近度和风险问题。
+            这些数字不经过 Jev。窗口高低来自当前 {market.interval} K 线，现价来自 Yahoo 报价。
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 text-sm md:grid-cols-2">

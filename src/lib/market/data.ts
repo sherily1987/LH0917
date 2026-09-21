@@ -163,16 +163,33 @@ function parseChart(symbol: string, payload: YahooChartResponse): SeriesResult |
   };
 }
 
-async function fetchYahooChart(symbol: string, range: string, interval: string): Promise<SeriesResult | null> {
+export type MarketFetchOptions = {
+  revalidate?: number;
+};
+
+function fetchCache(revalidate: number): RequestInit {
+  if (revalidate === 0) {
+    return { cache: "no-store" };
+  }
+  return { next: { revalidate } } as RequestInit;
+}
+
+async function fetchYahooChart(
+  symbol: string,
+  range: string,
+  interval: string,
+  options?: MarketFetchOptions,
+): Promise<SeriesResult | null> {
   const url = new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}`);
   url.searchParams.set("range", range);
   url.searchParams.set("interval", interval);
   url.searchParams.set("includePrePost", "false");
   url.searchParams.set("events", "div,splits");
+  const revalidate = options?.revalidate ?? (interval === "1d" ? 300 : 60);
 
   const response = await fetch(url, {
     headers: YAHOO_HEADERS,
-    next: { revalidate: interval === "1d" ? 300 : 60 },
+    ...fetchCache(revalidate),
     signal: AbortSignal.timeout(8000),
   });
   if (!response.ok) return null;
@@ -180,13 +197,17 @@ async function fetchYahooChart(symbol: string, range: string, interval: string):
   return parseChart(symbol, payload);
 }
 
-async function fetchYahooQuotes(symbols: string[]): Promise<Quote[] | null> {
+async function fetchYahooQuotes(
+  symbols: string[],
+  options?: MarketFetchOptions,
+): Promise<Quote[] | null> {
   if (symbols.length === 0) return [];
   const url = new URL("https://query1.finance.yahoo.com/v7/finance/quote");
   url.searchParams.set("symbols", symbols.join(","));
+  const revalidate = options?.revalidate ?? 30;
   const response = await fetch(url, {
     headers: YAHOO_HEADERS,
-    next: { revalidate: 30 },
+    ...fetchCache(revalidate),
     signal: AbortSignal.timeout(8000),
   });
   if (!response.ok) return null;
@@ -221,10 +242,11 @@ export async function getOHLCV(
   symbol: string,
   range = "1y",
   interval = "1d",
+  options?: MarketFetchOptions,
 ): Promise<SeriesResult> {
   const instrument = getInstrument(symbol);
   try {
-    const live = await fetchYahooChart(instrument.symbol, range, interval);
+    const live = await fetchYahooChart(instrument.symbol, range, interval, options);
     if (live) return live;
   } catch {
     // fall through to synthetic
@@ -240,10 +262,13 @@ export async function getOHLCV(
   };
 }
 
-export async function getQuotes(symbols: string[]): Promise<{ quotes: Quote[]; source: DataSource }> {
+export async function getQuotes(
+  symbols: string[],
+  options?: MarketFetchOptions,
+): Promise<{ quotes: Quote[]; source: DataSource }> {
   const unique = [...new Set(symbols.map((s) => getInstrument(s).symbol))];
   try {
-    const live = await fetchYahooQuotes(unique);
+    const live = await fetchYahooQuotes(unique, options);
     if (live && live.length) {
       const bySymbol = new Map(live.map((q) => [q.symbol, q]));
       return {
