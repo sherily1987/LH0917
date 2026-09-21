@@ -5,14 +5,17 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { QuoteTable } from "@/components/market/quote-table";
 import { MetricCard } from "@/components/market/metric-card";
 import { PriceChange } from "@/components/market/price-change";
+import { ResearchForm } from "@/components/research/research-form";
 import { getOHLCV, getQuotes } from "@/lib/market/data";
 import { INDEX_SYMBOLS, WATCHLIST_SYMBOLS } from "@/lib/market/universe";
 import { formatPercent, formatPrice } from "@/lib/format";
 import { STRATEGIES } from "@/lib/quant/strategies";
+import { hasTypeSafeKey } from "@/lib/typesafe/env";
 
 export const revalidate = 60;
 
 export default async function DashboardPage() {
+  const typesafeConfigured = hasTypeSafeKey();
   const symbols = [...INDEX_SYMBOLS, ...WATCHLIST_SYMBOLS];
   const [{ quotes, source }, sparkSeries] = await Promise.all([
     getQuotes(symbols),
@@ -50,6 +53,19 @@ export default async function DashboardPage() {
           </Button>
         </div>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>用一句话开始研究</CardTitle>
+          <CardDescription>
+            TypeSafe 在服务端把意图接到行情、回测或模拟组合。
+            {typesafeConfigured ? "" : " 尚未配置 TYPESAFE_API_KEY 时会停在研究页说明如何接入。"}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ResearchForm />
+        </CardContent>
+      </Card>
 
       <div className="grid gap-3 md:grid-cols-4">
         {indices.map((quote) =>
