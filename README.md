@@ -40,7 +40,7 @@ npm run build
 3. 问题和阈值集中在 `src/lib/typesafe/questions.ts`。组合逻辑在 `src/lib/typesafe/route.ts`，用单元测试覆盖，不打真实 API。
 4. 阈值是这个终端的起始值，不是通用规则。换一批真实问法后再调整。
 
-密钥只在服务端使用。客户端表单以 GET 提交到 `/research?q=`。
+密钥只在服务端使用。客户端表单以 GET 提交到 `/research?q=`。解析后页面会画出 Choice 概率条和 Noul 点名程度，再点「前往」进入对应页。官方对照界面是 [TypeSafe Playground](https://console.typesafe.ai/playground)。
 
 ## 技术栈
 

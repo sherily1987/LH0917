@@ -6,6 +6,7 @@ export const RESEARCH_EXAMPLES = [
   "回测苹果两年双均线",
   "看看英伟达的行情",
   "打开模拟组合",
+  "今天天气怎么样",
 ] as const;
 
 export function ResearchForm({

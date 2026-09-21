@@ -8,6 +8,7 @@ import {
 export type ChoiceJudgment = {
   choice: string;
   confidence: number;
+  probabilities?: Record<string, number>;
 };
 
 export type NoulJudgment = {
@@ -15,7 +16,7 @@ export type NoulJudgment = {
 };
 
 export type ResearchJudgments = {
-  action: { choice: ResearchAction; confidence: number };
+  action: ChoiceJudgment & { choice: ResearchAction };
   symbol: ChoiceJudgment;
   strategy: ChoiceJudgment;
   range: ChoiceJudgment;
@@ -53,6 +54,17 @@ function backtestHref(parts: {
   if (parts.run) params.set("run", "1");
   const qs = params.toString();
   return qs ? `/backtest?${qs}` : "/backtest";
+}
+
+export function rankedProbabilities(
+  probabilities: Record<string, number> | undefined,
+  limit = 4,
+): Array<{ id: string; value: number }> {
+  if (!probabilities) return [];
+  return Object.entries(probabilities)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([id, value]) => ({ id, value }));
 }
 
 export function decideResearchRoute(answers: ResearchJudgments): ResearchDecision {

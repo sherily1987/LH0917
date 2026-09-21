@@ -58,7 +58,7 @@ export default async function DashboardPage() {
         <CardHeader>
           <CardTitle>用一句话开始研究</CardTitle>
           <CardDescription>
-            TypeSafe 在服务端把意图接到行情、回测或模拟组合。
+            TypeSafe 在服务端判断意图；解析后会在研究页画出概率条。
             {typesafeConfigured ? "" : " 尚未配置 TYPESAFE_API_KEY 时会停在研究页说明如何接入。"}
           </CardDescription>
         </CardHeader>

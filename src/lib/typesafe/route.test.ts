@@ -5,6 +5,7 @@ import { buildResearchQuestions } from "@/lib/typesafe/questions";
 import {
   decideResearchRoute,
   isStated,
+  rankedProbabilities,
   type ResearchJudgments,
 } from "@/lib/typesafe/route";
 
@@ -181,5 +182,21 @@ describe("decideResearchRoute", () => {
     expect(
       decideResearchRoute(judgments({ action: { choice: "paper_trade", confidence: 0.8 } })),
     ).toMatchObject({ href: "/portfolio" });
+  });
+});
+
+describe("rankedProbabilities", () => {
+  it("sorts descending and keeps the top rows", () => {
+    expect(
+      rankedProbabilities({ none: 0.05, AAPL: 0.7, NVDA: 0.2, MSFT: 0.05 }, 3),
+    ).toEqual([
+      { id: "AAPL", value: 0.7 },
+      { id: "NVDA", value: 0.2 },
+      { id: "none", value: 0.05 },
+    ]);
+  });
+
+  it("returns an empty list when probabilities are missing", () => {
+    expect(rankedProbabilities(undefined)).toEqual([]);
   });
 });
