@@ -29,6 +29,7 @@ async function writePaperState(state: PaperState) {
   const store = await cookies();
   store.set(COOKIE, JSON.stringify(state), { path: "/", httpOnly: false, sameSite: "lax" });
   revalidatePath("/portfolio");
+  revalidatePath("/research");
 }
 
 function applyTrade(state: PaperState, side: "buy" | "sell", symbol: string, quantity: number, price: number) {

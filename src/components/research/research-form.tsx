@@ -2,40 +2,36 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-export const RESEARCH_EXAMPLES = [
-  "回测苹果两年双均线",
-  "看看英伟达的行情",
-  "打开模拟组合",
-  "今天天气怎么样",
+export const DESK_NOTE_EXAMPLES = [
+  "今天只做小仓，别追高",
+  "按趋势跟随，可以持有数周",
+  "波动太大，先观望",
 ] as const;
 
-export function ResearchForm({
-  defaultQuery = "",
-  autoFocus = false,
+export function DeskNoteForm({
+  defaultNote = "",
 }: {
-  defaultQuery?: string;
-  autoFocus?: boolean;
+  defaultNote?: string;
 }) {
   return (
     <form action="/research" method="get" className="flex flex-col gap-3">
       <div className="flex gap-2">
         <Input
           type="search"
-          name="q"
-          defaultValue={defaultQuery}
-          placeholder="用一句话说，例如：回测苹果两年双均线"
-          aria-label="研究意图"
-          autoFocus={autoFocus}
-          maxLength={500}
+          name="note"
+          defaultValue={defaultNote}
+          placeholder="可选：给 Jev 的约束，例如今天只做小仓"
+          aria-label="交易约束"
+          maxLength={400}
           className="flex-1"
         />
-        <Button type="submit">解析</Button>
+        <Button type="submit">重新判断</Button>
       </div>
       <p className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-        {RESEARCH_EXAMPLES.map((example) => (
+        {DESK_NOTE_EXAMPLES.map((example) => (
           <Link
             key={example}
-            href={`/research?q=${encodeURIComponent(example)}`}
+            href={`/research?note=${encodeURIComponent(example)}`}
             className="underline-offset-4 hover:text-foreground hover:underline"
           >
             {example}

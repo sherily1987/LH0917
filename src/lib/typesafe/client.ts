@@ -5,7 +5,8 @@ import {
   TypeSafeClient,
   TypeSafeError,
 } from "@typesafe-ai/sdk";
-import { buildResearchQuestions, buildResearchState } from "@/lib/typesafe/questions";
+import { buildBtcQuestions } from "@/lib/typesafe/questions";
+import type { BtcSnapshot } from "@/lib/typesafe/snapshot";
 
 export function getTypeSafeClient(): TypeSafeClient {
   return new TypeSafeClient({
@@ -13,11 +14,11 @@ export function getTypeSafeClient(): TypeSafeClient {
   });
 }
 
-export async function classifyResearchRequest(query: string) {
+export async function judgeBtcSnapshot(snapshot: BtcSnapshot) {
   const client = getTypeSafeClient();
   const { answers } = await client.systemOne({
-    state: buildResearchState(query),
-    questions: buildResearchQuestions(),
+    state: snapshot,
+    questions: buildBtcQuestions(),
   });
   return answers;
 }
@@ -33,7 +34,7 @@ export function describeTypeSafeError(error: unknown): string {
     return "无法连接 TypeSafe，请稍后重试。";
   }
   if (error instanceof TypeSafeError) {
-    return "TypeSafe 无法解析这次请求，请换种说法再试。";
+    return "TypeSafe 无法判断这次行情快照，请稍后重试。";
   }
-  return "研究意图解析失败，请稍后重试。";
+  return "BTC 决策失败，请稍后重试。";
 }

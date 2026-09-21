@@ -5,12 +5,12 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { QuoteTable } from "@/components/market/quote-table";
 import { MetricCard } from "@/components/market/metric-card";
 import { PriceChange } from "@/components/market/price-change";
-import { ResearchForm } from "@/components/research/research-form";
 import { getOHLCV, getQuotes } from "@/lib/market/data";
 import { INDEX_SYMBOLS, WATCHLIST_SYMBOLS } from "@/lib/market/universe";
 import { formatPercent, formatPrice } from "@/lib/format";
 import { STRATEGIES } from "@/lib/quant/strategies";
 import { hasTypeSafeKey } from "@/lib/typesafe/env";
+import { BTC_SYMBOL } from "@/lib/typesafe/questions";
 
 export const revalidate = 60;
 
@@ -43,7 +43,7 @@ export default async function DashboardPage() {
           <p className="text-xs tracking-[0.2em] text-muted-foreground">LH QUANT</p>
           <h1 className="text-2xl font-medium">盘面</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            把行情、策略与回测放在同一套研究工作流里。
+            把行情、策略、回测和比特币纸上决策放在同一套工作流里。
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -56,14 +56,19 @@ export default async function DashboardPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>用一句话开始研究</CardTitle>
+          <CardTitle>BTC 决策台</CardTitle>
           <CardDescription>
-            TypeSafe 在服务端判断意图；解析后会在研究页画出概率条。
-            {typesafeConfigured ? "" : " 尚未配置 TYPESAFE_API_KEY 时会停在研究页说明如何接入。"}
+            Jev 盯着比特币现价做纸上判断：大约每 10 秒刷新报价，价格一动或满 45 秒就重判。
+            {typesafeConfigured ? "" : " 尚未配置 TYPESAFE_API_KEY 时仍可看现价，不能出判断。"}
           </CardDescription>
+          <CardAction>
+            <Button asChild>
+              <Link href="/research">打开 BTC 决策</Link>
+            </Button>
+          </CardAction>
         </CardHeader>
-        <CardContent>
-          <ResearchForm />
+        <CardContent className="text-sm text-muted-foreground">
+          代码计算均线、RSI、MACD 和各策略最新信号；Jev 回答做多、减仓还是观望。确认后才会改模拟组合里的 {BTC_SYMBOL}。
         </CardContent>
       </Card>
 
