@@ -1,35 +1,33 @@
-import Link from "next/link";
+import { tradeAction } from "@/app/portfolio/actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatPercent } from "@/lib/format";
-import { RANGE_LABEL, RESEARCH_ACTION_LABEL, type ResearchAction } from "@/lib/typesafe/questions";
+import { formatPercent, formatPrice } from "@/lib/format";
+import {
+  BTC_HORIZON_LABEL,
+  BTC_PLAY_LABEL,
+  BTC_STANCE_LABEL,
+  BTC_SYMBOL,
+  type BtcHorizon,
+  type BtcPlay,
+  type BtcStance,
+} from "@/lib/typesafe/questions";
 import {
   rankedProbabilities,
-  type ResearchDecision,
-  type ResearchJudgments,
-} from "@/lib/typesafe/route";
-import { STRATEGIES } from "@/lib/quant/strategies";
-import { UNIVERSE } from "@/lib/market/universe";
+  stanceCopy,
+  type BtcDecision,
+  type BtcJudgments,
+} from "@/lib/typesafe/decision";
 
-function actionLabel(id: string): string {
-  return RESEARCH_ACTION_LABEL[id as ResearchAction] ?? id;
+function stanceLabel(id: string): string {
+  return BTC_STANCE_LABEL[id as BtcStance] ?? id;
 }
 
-function symbolLabel(id: string): string {
-  if (id === "none") return "未点名";
-  const item = UNIVERSE.find((row) => row.symbol === id);
-  return item ? `${item.symbol} · ${item.nameZh}` : id;
+function playLabel(id: string): string {
+  return BTC_PLAY_LABEL[id as BtcPlay] ?? id;
 }
 
-function strategyLabel(id: string): string {
-  if (id === "none") return "未点名";
-  const item = STRATEGIES.find((row) => row.id === id);
-  return item ? item.name : id;
-}
-
-function rangeLabel(id: string): string {
-  if (id === "none") return "未点名";
-  return RANGE_LABEL[id as keyof typeof RANGE_LABEL] ?? id;
+function horizonLabel(id: string): string {
+  return BTC_HORIZON_LABEL[id as BtcHorizon] ?? id;
 }
 
 function Bar({
@@ -96,80 +94,103 @@ function ChoiceBlock({
   );
 }
 
-function NoulBlock({ title, value }: { title: string; value: number }) {
+function ScoreBlock({
+  title,
+  score,
+  confidence,
+  max = 3,
+}: {
+  title: string;
+  score: number;
+  confidence: number;
+  max?: number;
+}) {
   return (
     <div className="space-y-2">
-      <h3 className="text-sm font-medium">{title}</h3>
-      <Bar label="点名了" value={value} active={value >= 0.6} />
-      <Bar label="没点名" value={1 - value} active={value < 0.6} />
+      <div className="flex items-baseline justify-between gap-2">
+        <h3 className="text-sm font-medium">{title}</h3>
+        <span className="font-mono text-xs text-muted-foreground">
+          置信 {formatPercent(confidence, 0, false)}
+        </span>
+      </div>
+      <p className="font-mono text-sm">
+        {score.toFixed(2)} / {max}
+      </p>
+      <Bar label={title} value={max === 0 ? 0 : score / max} active />
     </div>
   );
 }
 
-export function ResearchTrace({
-  query,
+function NoulBlock({ title, value }: { title: string; value: number }) {
+  return (
+    <div className="space-y-2">
+      <h3 className="text-sm font-medium">{title}</h3>
+      <Bar label="更像是" value={value} active={value >= 0.6} />
+      <Bar label="更不像" value={1 - value} active={value < 0.6} />
+    </div>
+  );
+}
+
+export function DecisionPanel({
   answers,
   decision,
 }: {
-  query: string;
-  answers: ResearchJudgments;
-  decision: ResearchDecision;
+  answers: BtcJudgments;
+  decision: BtcDecision;
 }) {
-  const going = decision.kind === "redirect";
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{going ? "TypeSafe 判断" : "需要再明确一点"}</CardTitle>
-        <CardDescription>
-          {going
-            ? `代码把这次判断接到 ${decision.href}`
-            : decision.message}
-        </CardDescription>
+        <CardTitle>Jev 判断 · 代码定仓</CardTitle>
+        <CardDescription>{stanceCopy(decision)}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        <p className="text-sm text-muted-foreground">
-          「{query}」
-          {going ? null : ` ${decision.hint}`}
-        </p>
-        <div className="grid gap-6 md:grid-cols-2">
+        <p className="text-sm text-muted-foreground">{decision.reason}</p>
+        <div className="grid gap-6 md:grid-cols-3">
           <ChoiceBlock
-            title="动作"
-            choice={answers.action.choice}
-            confidence={answers.action.confidence}
-            probabilities={answers.action.probabilities}
-            labelOf={actionLabel}
+            title="纸上立场"
+            choice={answers.stance.choice}
+            confidence={answers.stance.confidence}
+            probabilities={answers.stance.probabilities}
+            labelOf={stanceLabel}
           />
           <ChoiceBlock
-            title="标的"
-            choice={answers.symbol.choice}
-            confidence={answers.symbol.confidence}
-            probabilities={answers.symbol.probabilities}
-            labelOf={symbolLabel}
+            title="更贴近的策略"
+            choice={answers.play.choice}
+            confidence={answers.play.confidence}
+            probabilities={answers.play.probabilities}
+            labelOf={playLabel}
           />
           <ChoiceBlock
-            title="策略"
-            choice={answers.strategy.choice}
-            confidence={answers.strategy.confidence}
-            probabilities={answers.strategy.probabilities}
-            labelOf={strategyLabel}
-          />
-          <ChoiceBlock
-            title="区间"
-            choice={answers.range.choice}
-            confidence={answers.range.confidence}
-            probabilities={answers.range.probabilities}
-            labelOf={rangeLabel}
+            title="持有周期"
+            choice={answers.horizon.choice}
+            confidence={answers.horizon.confidence}
+            probabilities={answers.horizon.probabilities}
+            labelOf={horizonLabel}
           />
         </div>
         <div className="grid gap-6 md:grid-cols-3">
-          <NoulBlock title="是否点名标的" value={answers.namesSymbol.noul} />
-          <NoulBlock title="是否点名策略" value={answers.namesStrategy.noul} />
-          <NoulBlock title="是否点名区间" value={answers.namesRange.noul} />
+          <ScoreBlock title="趋势干净程度" score={answers.trendQuality.score} confidence={answers.trendQuality.confidence} />
+          <ScoreBlock title="震荡程度" score={answers.chop.score} confidence={answers.chop.confidence} />
+          <ScoreBlock title="价格拉伸" score={answers.stretch.score} confidence={answers.stretch.confidence} />
         </div>
-        {going ? (
-          <Button asChild>
-            <Link href={decision.href}>前往 {decision.reason}</Link>
-          </Button>
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+          <NoulBlock title="适不适合趋势跟踪" value={answers.trendFits.noul} />
+          <NoulBlock title="适不适合均值回归" value={answers.meanReversionFits.noul} />
+          <NoulBlock title="要不要回避新风险" value={answers.skipNewRisk.noul} />
+          <NoulBlock title="现有多头还站得住吗" value={answers.keepInventory.noul} />
+        </div>
+        {decision.paperSide && decision.quantity > 0 ? (
+          <form action={tradeAction} className="flex flex-wrap items-center gap-3">
+            <input type="hidden" name="symbol" value={BTC_SYMBOL} />
+            <input type="hidden" name="quantity" value={String(decision.quantity)} />
+            <Button type="submit" name="side" value={decision.paperSide}>
+              确认纸上
+              {decision.paperSide === "buy" ? "买入" : "卖出"} {decision.quantity} {BTC_SYMBOL}
+              （约 {formatPrice(decision.notionalUsd)}）
+            </Button>
+            <p className="text-xs text-muted-foreground">不会发到交易所。你点了才会改模拟组合。</p>
+          </form>
         ) : null}
       </CardContent>
     </Card>

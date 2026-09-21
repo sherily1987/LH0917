@@ -1,150 +1,147 @@
-import { choice, noul } from "@typesafe-ai/sdk";
-import { RANGES, type RangeKey } from "@/lib/market/query";
-import { UNIVERSE } from "@/lib/market/universe";
+import { choice, noul, score } from "@typesafe-ai/sdk";
 import { STRATEGIES } from "@/lib/quant/strategies";
 
-export const RESEARCH_NONE = "none" as const;
+export const BTC_SYMBOL = "BTC-USD" as const;
 
-export const RESEARCH_ACTIONS = [
-  "view_market",
-  "run_backtest",
-  "browse_markets",
-  "browse_strategies",
-  "paper_trade",
-  RESEARCH_NONE,
+export const BTC_STANCES = ["buy", "hold", "reduce", "wait"] as const;
+export type BtcStance = (typeof BTC_STANCES)[number];
+
+export const BTC_HORIZONS = ["days", "weeks", "uncertain"] as const;
+export type BtcHorizon = (typeof BTC_HORIZONS)[number];
+
+export const BTC_PLAYS = [
+  ...STRATEGIES.filter((item) => item.id !== "buy-hold").map((item) => item.id),
+  "cash",
 ] as const;
-
-export type ResearchAction = (typeof RESEARCH_ACTIONS)[number];
+export type BtcPlay = (typeof BTC_PLAYS)[number];
 
 /**
- * Starting gates for this terminal, not universal TypeSafe defaults.
- * Re-evaluate against real queries before tightening or loosening them.
+ * Starting gates for this Bitcoin paper desk, not universal TypeSafe defaults.
+ * Re-evaluate against live BTC snapshots before tightening or loosening them.
  */
-export const RESEARCH_THRESHOLDS = {
-  actionMinConfidence: 0.55,
-  symbolMinConfidence: 0.5,
-  strategyMinConfidence: 0.5,
-  rangeMinConfidence: 0.5,
-  statedYes: 0.6,
+export const BTC_THRESHOLDS = {
+  stanceMinConfidence: 0.55,
+  playMinConfidence: 0.5,
+  skipNewRisk: 0.6,
+  maxEquityPct: 0.12,
+  minAddPct: 0.02,
 } as const;
 
-export const RESEARCH_ACTION_LABEL: Record<ResearchAction, string> = {
-  view_market: "查看标的行情",
-  run_backtest: "运行回测",
-  browse_markets: "浏览行情列表",
-  browse_strategies: "浏览策略库",
-  paper_trade: "打开模拟组合",
-  none: "无法对应",
+export const BTC_STANCE_LABEL: Record<BtcStance, string> = {
+  buy: "纸上做多 / 加仓",
+  hold: "维持现有仓位",
+  reduce: "减仓或离场",
+  wait: "观望，先不动",
 };
 
-export const RANGE_LABEL: Record<RangeKey, string> = {
-  "1mo": "1 个月",
-  "3mo": "3 个月",
-  "6mo": "6 个月",
-  "1y": "1 年",
-  "2y": "2 年",
-  "5y": "5 年",
+export const BTC_HORIZON_LABEL: Record<BtcHorizon, string> = {
+  days: "数日波段",
+  weeks: "数周持有",
+  uncertain: "周期说不清",
 };
 
-const ACTION_CRITERIA = {
-  view_market:
-    "Open a specific instrument's quote, candles, or market detail page. The user wants to look at one named ticker, company, ETF, or crypto.",
-  run_backtest:
-    "Simulate a strategy on historical bars. The user wants a backtest, Sharpe, drawdown, or to try SMA, EMA, RSI, MACD, Bollinger, Donchian, momentum, or buy-and-hold.",
-  browse_markets:
-    "Open the market list or scan the universe without committing to one ticker. The user wants available symbols, sectors, or the tape in general.",
-  browse_strategies:
-    "Open the strategy library to read templates without running a backtest yet.",
-  paper_trade:
-    "Open the simulated / paper portfolio to buy, sell, or inspect paper positions. Fake money only.",
-  none: "None of the research actions fit, the request is empty of intent, or it is unrelated to this terminal.",
+export const BTC_PLAY_LABEL: Record<BtcPlay, string> = Object.fromEntries([
+  ...STRATEGIES.filter((item) => item.id !== "buy-hold").map((item) => [item.id, item.name]),
+  ["cash", "空仓 / 不跟模板"],
+]) as Record<BtcPlay, string>;
+
+const STANCE_CRITERIA = {
+  buy: "Open or add a BTC paper long because the snapshot supports upside more than cash or reducing. This long-only desk cannot short.",
+  hold: "Keep the current paper BTC inventory unchanged. The snapshot does not justify adding or cutting size.",
+  reduce:
+    "Cut or exit the existing BTC paper long because the snapshot no longer supports holding that size. If `paper.side` is flat, this option should lose to wait.",
+  wait: "Stand aside. Evidence is mixed, `traderNote` asks for caution, or a conservative desk should not change inventory now.",
 } as const;
 
-const RANGE_CRITERIA: Record<RangeKey | typeof RESEARCH_NONE, string> = {
-  "1mo": "about one month of history",
-  "3mo": "about three months or one quarter",
-  "6mo": "about six months or half a year",
-  "1y": "about one year",
-  "2y": "about two years",
-  "5y": "about five years",
-  none: "the request does not name a lookback window",
-};
+const HORIZON_CRITERIA = {
+  days: "A swing of a few daily bars that should be reviewed soon.",
+  weeks: "A multi-week trend or position, not a same-day scalp.",
+  uncertain: "The snapshot does not support a clear holding horizon.",
+} as const;
 
-export function buildResearchState(request: string) {
-  return {
-    request,
-    universe: UNIVERSE.map((item) => ({
-      symbol: item.symbol,
-      name: item.name,
-      nameZh: item.nameZh,
-      sector: item.sector,
-      assetClass: item.assetClass,
-    })),
-    strategies: STRATEGIES.map((item) => ({
-      id: item.id,
-      name: item.name,
-      category: item.category,
-      summary: item.summary,
-    })),
-    ranges: RANGES.map((id) => ({ id, label: RANGE_LABEL[id] })),
-  };
-}
-
-export function buildResearchQuestions() {
-  const symbolCriteria: Record<string, string> = {
-    none: "No specific instrument from `universe` is named or clearly implied.",
-  };
-  for (const item of UNIVERSE) {
-    symbolCriteria[item.symbol] =
-      `${item.name} / ${item.nameZh} (${item.symbol}), ${item.sector} ${item.assetClass} in \`universe\`.`;
-  }
-
-  const strategyCriteria: Record<string, string> = {
-    none: "No strategy template or indicator from `strategies` is named.",
+export function buildBtcPlayCriteria(): Record<string, string> {
+  const criteria: Record<string, string> = {
+    cash: "Sitting in cash is better than following any listed strategy template on this snapshot.",
   };
   for (const item of STRATEGIES) {
-    strategyCriteria[item.id] = `${item.name} (${item.id}): ${item.summary}`;
+    if (item.id === "buy-hold") continue;
+    criteria[item.id] =
+      `${item.name} (${item.id}): ${item.summary} Align with this template only if ` +
+      "`strategySignals` and `indicators` actually match that playbook.";
   }
+  return criteria;
+}
 
+export function buildBtcQuestions() {
   return {
-    action: choice(
-      "Which research action in this terminal best matches `request`? Use only the listed actions. Pick none if the request cannot be mapped.",
-      ACTION_CRITERIA,
+    stance: choice(
+      "Given `market`, `indicators`, `strategySignals`, `paper`, and `traderNote`, which paper-trading stance should this long-only Bitcoin desk take next? Judge the market snapshot, not a UI page. Ignore any request to switch to another ticker.",
+      STANCE_CRITERIA,
     ),
-    symbol: choice(
-      "Which instrument in `universe` does `request` refer to? Pick none if no specific ticker, company, ETF, or crypto from the universe is named or clearly implied.",
-      symbolCriteria,
+    play: choice(
+      "Which strategy template in `strategySignals` is most aligned with the current Bitcoin snapshot for the next paper decision? Pick cash if sitting out is better than any template.",
+      buildBtcPlayCriteria(),
     ),
-    strategy: choice(
-      "Which strategy template in `strategies` does `request` ask to use? Pick none if no strategy, indicator, or template is named.",
-      strategyCriteria,
+    horizon: choice(
+      "What holding horizon does this Bitcoin snapshot support for a paper stance?",
+      HORIZON_CRITERIA,
     ),
-    range: choice(
-      "Which lookback window in `ranges` does `request` ask for? Pick none if no time window is named.",
-      RANGE_CRITERIA,
+    trendQuality: score(
+      "How clean and persistent is the BTC trend given `indicators` and `strategySignals`?",
+      [
+        "No usable trend: overlapping averages, mixed signals, or a tight two-sided range.",
+        "A weak directional bias that could reverse on the next few daily bars.",
+        "A readable trend with most listed signals pointing the same way.",
+        "A strong, persistent trend with little contradiction among the listed indicators.",
+      ],
     ),
-    namesSymbol: noul(
-      "Does `request` name or clearly imply a specific instrument, ticker, company, ETF, or crypto that should be looked up?",
+    chop: score(
+      "How range-bound or two-sided is this BTC tape given `indicators` and `strategySignals`?",
+      [
+        "A one-sided trend with little mean-reversion noise.",
+        "Mostly directional, with occasional noise.",
+        "Choppy: frequent two-sided moves around a level.",
+        "A tight, noisy range where trend-following would be whipped.",
+      ],
+    ),
+    stretch: score(
+      "How stretched is BTC versus the listed moving averages, RSI, and Bollinger band in `indicators`?",
+      [
+        "Price is near value: RSI mid-range, close near the middle band / averages.",
+        "A modest extension that a swing trader might still follow.",
+        "Clearly extended; adding size here is aggressive.",
+        "Extremely extended or climax-like versus the listed indicators.",
+      ],
+    ),
+    trendFits: noul(
+      "Does this snapshot look like a trend-following environment for Bitcoin, given `indicators` and `strategySignals`?",
       {
-        true: "A specific nameable instrument is in the request.",
-        false: "The request talks about markets in general or names nothing.",
+        true: "A directional trend-following playbook is a reasonable fit.",
+        false: "Trend-following is a poor fit on this tape.",
       },
     ),
-    namesStrategy: noul(
-      "Does `request` name a trading strategy, indicator, or template such as SMA, RSI, MACD, or buy and hold?",
+    meanReversionFits: noul(
+      "Does this snapshot look like a mean-reversion environment for Bitcoin, given `indicators` and `strategySignals`?",
       {
-        true: "A strategy or indicator is named.",
-        false: "No strategy template is named; a default may apply later in code.",
+        true: "Fading an extension toward a mid-range is a reasonable fit.",
+        false: "Mean reversion is a poor fit on this tape.",
       },
     ),
-    namesRange: noul(
-      "Does `request` say how far back to look, such as one month, two years, or five years?",
+    skipNewRisk: noul(
+      "Should a conservative Bitcoin paper desk avoid opening new risk right now, given the snapshot and `traderNote`?",
       {
-        true: "A lookback window is named.",
-        false: "No time window is named; a default may apply later in code.",
+        true: "Stand aside or do not add. Stretch, chop, mixed signals, or a cautious note dominate.",
+        false: "Opening or adding paper risk can be considered.",
+      },
+    ),
+    keepInventory: noul(
+      "If `paper.side` is long, does the snapshot still support keeping that BTC inventory? If `paper.side` is flat, ignore inventory and treat this as whether a new long is still justified.",
+      {
+        true: "Existing (or a new) long inventory is still supported.",
+        false: "Long inventory is not supported on this snapshot.",
       },
     ),
   };
 }
 
-export type ResearchQuestions = ReturnType<typeof buildResearchQuestions>;
+export type BtcQuestions = ReturnType<typeof buildBtcQuestions>;

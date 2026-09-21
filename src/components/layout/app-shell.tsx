@@ -5,11 +5,11 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
   Activity,
+  Bitcoin,
   CandlestickChart,
   FlaskConical,
   LayoutDashboard,
   Menu,
-  Search,
   Wallet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -25,7 +25,7 @@ import { cn } from "@/lib/utils";
 
 const NAV = [
   { href: "/", label: "盘面", icon: LayoutDashboard },
-  { href: "/research", label: "研究", icon: Search },
+  { href: "/research", label: "BTC 决策", icon: Bitcoin },
   { href: "/markets", label: "行情", icon: CandlestickChart },
   { href: "/strategies", label: "策略", icon: FlaskConical },
   { href: "/backtest", label: "回测", icon: Activity },
