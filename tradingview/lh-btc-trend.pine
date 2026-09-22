@@ -100,9 +100,10 @@ plot(diPlus, "DI+", display=display.data_window)
 plot(diMinus, "DI-", display=display.data_window)
 plot(bbMid, "布林中轨", display=display.data_window)
 
-bool turnedUp = regime == "up" and nz(regime[1], "") != "up"
-bool turnedDn = regime == "down" and nz(regime[1], "") != "down"
-bool turnedChop = regime == "chop" and nz(regime[1], "") != "chop"
+string prevRegime = bar_index > 0 ? regime[1] : "init"
+bool turnedUp = regime == "up" and prevRegime != "up"
+bool turnedDn = regime == "down" and prevRegime != "down"
+bool turnedChop = regime == "chop" and prevRegime != "chop"
 bool becameStrongUp = strongUp and not strongUp[1]
 bool becameStretched = stretched and not stretched[1]
 
