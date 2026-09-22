@@ -1,82 +1,82 @@
-//@version=5
-// 量衡 Quant · BTC 趋势
+//@version=6
+// 量衡 Quant · BTC 趋势（Pine v6）
 // 参数与终端策略模板对齐：SMA 10/30、EMA 12/26、MACD 12/26/9、唐奇安 20、ROC 20、RSI 14、ATR 14。
-// 这是研究指标，不是投资建议，也不会下真实订单。建议用在 BTCUSD / BTCUSDT，周期 15m、1h、4h 或 1D。
+// 研究指标，不是投资建议，也不会下真实订单。建议 BTCUSD / BTCUSDT，周期 15m、1h、4h 或 1D。
 
 indicator(title="量衡 BTC 趋势", shorttitle="LH BTC", overlay=true, max_labels_count=100)
 
-gMa = "均线"
-smaFastLen = input.int(10, "SMA 快线", minval=2, maxval=60, group=gMa)
-smaSlowLen = input.int(30, "SMA 慢线", minval=5, maxval=200, group=gMa)
-emaFastLen = input.int(12, "EMA 快线", minval=2, maxval=60, group=gMa)
-emaSlowLen = input.int(26, "EMA 慢线", minval=5, maxval=200, group=gMa)
+string gMa = "均线"
+int smaFastLen = input.int(10, "SMA 快线", minval=2, maxval=60, group=gMa)
+int smaSlowLen = input.int(30, "SMA 慢线", minval=5, maxval=200, group=gMa)
+int emaFastLen = input.int(12, "EMA 快线", minval=2, maxval=60, group=gMa)
+int emaSlowLen = input.int(26, "EMA 慢线", minval=5, maxval=200, group=gMa)
 
-gMacd = "MACD"
-macdFast = input.int(12, "快线", minval=5, maxval=20, group=gMacd)
-macdSlow = input.int(26, "慢线", minval=15, maxval=50, group=gMacd)
-macdSig = input.int(9, "信号线", minval=5, maxval=20, group=gMacd)
+string gMacd = "MACD"
+int macdFast = input.int(12, "快线", minval=5, maxval=20, group=gMacd)
+int macdSlow = input.int(26, "慢线", minval=15, maxval=50, group=gMacd)
+int macdSig = input.int(9, "信号线", minval=5, maxval=20, group=gMacd)
 
-gMom = "通道与动量"
-donLen = input.int(20, "唐奇安周期", minval=5, maxval=60, group=gMom)
-rocLen = input.int(20, "ROC 周期", minval=5, maxval=120, group=gMom)
-rsiLen = input.int(14, "RSI 周期", minval=2, maxval=50, group=gMom)
-bbLen = input.int(20, "布林周期", minval=10, maxval=60, group=gMom)
-bbMult = input.float(2.0, "布林标准差", minval=1.0, maxval=3.5, step=0.1, group=gMom)
+string gMom = "通道与动量"
+int donLen = input.int(20, "唐奇安周期", minval=5, maxval=60, group=gMom)
+int rocLen = input.int(20, "ROC 周期", minval=5, maxval=120, group=gMom)
+int rsiLen = input.int(14, "RSI 周期", minval=2, maxval=50, group=gMom)
+int bbLen = input.int(20, "布林周期", minval=10, maxval=60, group=gMom)
+float bbMult = input.float(2.0, "布林标准差", minval=1.0, maxval=3.5, step=0.1, group=gMom)
 
-gFlt = "趋势过滤"
-adxLen = input.int(14, "ADX 周期", minval=5, maxval=50, group=gFlt)
-adxChop = input.float(18.0, "震荡 ADX 上限", minval=5, maxval=40, step=0.5, group=gFlt)
-scoreUp = input.int(2, "转多最低票数", minval=1, maxval=6, group=gFlt)
-scoreDn = input.int(-2, "转空最高票数", minval=-6, maxval=-1, group=gFlt)
-htfTf = input.timeframe("D", "大周期均线", group=gFlt)
-htfLen = input.int(50, "大周期 SMA", minval=10, maxval=200, group=gFlt)
-useHtf = input.bool(true, "用大周期方向过滤强趋势", group=gFlt)
-stretchPctB = input.float(0.90, "拉伸 %B", minval=0.7, maxval=1.0, step=0.01, group=gFlt)
-stretchRsi = input.float(70.0, "拉伸 RSI", minval=55, maxval=90, step=1, group=gFlt)
+string gFlt = "趋势过滤"
+int adxLen = input.int(14, "ADX 周期", minval=5, maxval=50, group=gFlt)
+float adxChop = input.float(18.0, "震荡 ADX 上限", minval=5, maxval=40, step=0.5, group=gFlt)
+int scoreUp = input.int(2, "转多最低票数", minval=1, maxval=6, group=gFlt)
+int scoreDn = input.int(-2, "转空最高票数", minval=-6, maxval=-1, group=gFlt)
+string htfTf = input.timeframe("1D", "大周期均线", group=gFlt)
+int htfLen = input.int(50, "大周期 SMA", minval=10, maxval=200, group=gFlt)
+bool useHtf = input.bool(true, "用大周期方向过滤强趋势", group=gFlt)
+float stretchPctB = input.float(0.90, "拉伸 %B", minval=0.7, maxval=1.0, step=0.01, group=gFlt)
+float stretchRsi = input.float(70.0, "拉伸 RSI", minval=55, maxval=90, step=1, group=gFlt)
 
-gVis = "显示"
-showSma = input.bool(true, "SMA", group=gVis)
-showEma = input.bool(true, "EMA", group=gVis)
-showHtf = input.bool(true, "大周期均线", group=gVis)
-showDon = input.bool(false, "唐奇安通道", group=gVis)
-showBg = input.bool(true, "趋势背景", group=gVis)
-showBars = input.bool(false, "K 线着色", group=gVis)
-showLabels = input.bool(true, "状态切换标签", group=gVis)
-showTable = input.bool(true, "状态表", group=gVis)
-colUp = input.color(#22c55e, "多头", group=gVis)
-colDn = input.color(#ef4444, "空头", group=gVis)
-colChop = input.color(#94a3b8, "震荡", group=gVis)
+string gVis = "显示"
+bool showSma = input.bool(true, "SMA", group=gVis)
+bool showEma = input.bool(true, "EMA", group=gVis)
+bool showHtf = input.bool(true, "大周期均线", group=gVis)
+bool showDon = input.bool(false, "唐奇安通道", group=gVis)
+bool showBg = input.bool(true, "趋势背景", group=gVis)
+bool showBars = input.bool(false, "K 线着色", group=gVis)
+bool showLabels = input.bool(true, "状态切换标签", group=gVis)
+bool showTable = input.bool(true, "状态表", group=gVis)
+color colUp = input.color(#22c55e, "多头", group=gVis)
+color colDn = input.color(#ef4444, "空头", group=gVis)
+color colChop = input.color(#94a3b8, "震荡", group=gVis)
 
-vote(condUp, condDn) =>
+vote(bool condUp, bool condDn) =>
     condUp ? 1 : condDn ? -1 : 0
 
-smaFast = ta.sma(close, smaFastLen)
-smaSlow = ta.sma(close, smaSlowLen)
-emaFast = ta.ema(close, emaFastLen)
-emaSlow = ta.ema(close, emaSlowLen)
+float smaFast = ta.sma(close, smaFastLen)
+float smaSlow = ta.sma(close, smaSlowLen)
+float emaFast = ta.ema(close, emaFastLen)
+float emaSlow = ta.ema(close, emaSlowLen)
 [macdLine, macdSignal, macdHist] = ta.macd(close, macdFast, macdSlow, macdSig)
-rocVal = ta.roc(close, rocLen)
-rsiVal = ta.rsi(close, rsiLen)
-atrPct = close != 0 ? ta.atr(14) / close * 100.0 : 0.0
+float rocVal = ta.roc(close, rocLen)
+float rsiVal = ta.rsi(close, rsiLen)
+float atrPct = close != 0.0 ? ta.atr(14) / close * 100.0 : 0.0
 [diPlus, diMinus, adxVal] = ta.dmi(adxLen, adxLen)
 [bbMid, bbUp, bbLo] = ta.bb(close, bbLen, bbMult)
-pctB = bbUp != bbLo ? (close - bbLo) / (bbUp - bbLo) : 0.5
-donHigh = ta.highest(high, donLen)
-donLow = ta.lowest(low, donLen)
-donPos = donHigh != donLow ? (close - donLow) / (donHigh - donLow) : 0.5
-htfSma = request.security(syminfo.tickerid, htfTf, ta.sma(close, htfLen), barmerge.gaps_off, barmerge.lookahead_off)
-htfBias = not useHtf or na(htfSma) ? 0 : close > htfSma ? 1 : close < htfSma ? -1 : 0
+float pctB = bbUp != bbLo ? (close - bbLo) / (bbUp - bbLo) : 0.5
+float donHigh = ta.highest(high, donLen)
+float donLow = ta.lowest(low, donLen)
+float donPos = donHigh != donLow ? (close - donLow) / (donHigh - donLow) : 0.5
+float htfSma = request.security(syminfo.tickerid, htfTf, ta.sma(close, htfLen), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+int htfBias = not useHtf or na(htfSma) ? 0 : close > htfSma ? 1 : close < htfSma ? -1 : 0
 
-score = vote(smaFast > smaSlow, smaFast < smaSlow) + vote(emaFast > emaSlow, emaFast < emaSlow) + vote(close > smaSlow, close < smaSlow) + vote(macdHist > 0, macdHist < 0) + vote(macdLine > macdSignal, macdLine < macdSignal) + vote(rocVal > 0, rocVal < 0) + vote(donPos > 0.66, donPos < 0.33)
+int score = vote(smaFast > smaSlow, smaFast < smaSlow) + vote(emaFast > emaSlow, emaFast < emaSlow) + vote(close > smaSlow, close < smaSlow) + vote(macdHist > 0.0, macdHist < 0.0) + vote(macdLine > macdSignal, macdLine < macdSignal) + vote(rocVal > 0.0, rocVal < 0.0) + vote(donPos > 0.66, donPos < 0.33)
 
-stretched = pctB >= stretchPctB and rsiVal >= stretchRsi
-choppy = adxVal < adxChop
-regime = choppy and math.abs(score) < 5 ? "chop" : score >= scoreUp ? "up" : score <= scoreDn ? "down" : "chop"
-strongUp = regime == "up" and score >= 4 and not stretched and htfBias >= 0
-strongDn = regime == "down" and score <= -4 and htfBias <= 0
-hint = strongDn or regime == "down" ? "减仓 / 观望" : stretched or choppy or regime == "chop" ? "观望，不追" : strongUp ? "趋势跟随（纸上）" : "弱多，小仓或等待"
-regimeCol = regime == "up" ? colUp : regime == "down" ? colDn : colChop
-regimeText = regime == "up" ? (strongUp ? "强多" : "偏多") : regime == "down" ? (strongDn ? "强空" : "偏空") : "震荡"
+bool stretched = pctB >= stretchPctB and rsiVal >= stretchRsi
+bool choppy = adxVal < adxChop
+string regime = choppy and math.abs(score) < 5 ? "chop" : score >= scoreUp ? "up" : score <= scoreDn ? "down" : "chop"
+bool strongUp = regime == "up" and score >= 4 and not stretched and htfBias >= 0
+bool strongDn = regime == "down" and score <= -4 and htfBias <= 0
+string hint = strongDn or regime == "down" ? "减仓 / 观望" : stretched or choppy or regime == "chop" ? "观望，不追" : strongUp ? "趋势跟随（纸上）" : "弱多，小仓或等待"
+color regimeCol = regime == "up" ? colUp : regime == "down" ? colDn : colChop
+string regimeText = regime == "up" ? (strongUp ? "强多" : "偏多") : regime == "down" ? (strongDn ? "强空" : "偏空") : "震荡"
 
 pSmaF = plot(showSma ? smaFast : na, "SMA 快", color=color.new(colUp, 20), linewidth=1)
 pSmaS = plot(showSma ? smaSlow : na, "SMA 慢", color=color.new(colDn, 10), linewidth=2)
@@ -100,9 +100,11 @@ plot(diPlus, "DI+", display=display.data_window)
 plot(diMinus, "DI-", display=display.data_window)
 plot(bbMid, "布林中轨", display=display.data_window)
 
-turnedUp = regime == "up" and regime[1] != "up"
-turnedDn = regime == "down" and regime[1] != "down"
-turnedChop = regime == "chop" and regime[1] != "chop"
+bool turnedUp = regime == "up" and nz(regime[1], "") != "up"
+bool turnedDn = regime == "down" and nz(regime[1], "") != "down"
+bool turnedChop = regime == "chop" and nz(regime[1], "") != "chop"
+bool becameStrongUp = strongUp and not strongUp[1]
+bool becameStretched = stretched and not stretched[1]
 
 if showLabels and turnedUp
     label.new(bar_index, low, strongUp ? "强多" : "转多", style=label.style_label_up, color=colUp, textcolor=color.white, size=size.small)
@@ -113,27 +115,27 @@ if showLabels and turnedChop
 
 var table panel = table.new(position.top_right, 2, 9, border_width=1)
 if showTable and barstate.islast
-    table.cell(panel, 0, 0, "量衡 BTC", text_color=color.white, text_halign=text.align_left, bgcolor=color.new(#0f172a, 0), text_size=size.small)
-    table.cell(panel, 1, 0, timeframe.period, text_color=color.new(color.white, 20), text_halign=text.align_right, bgcolor=color.new(#0f172a, 0), text_size=size.small)
-    table.cell(panel, 0, 1, "趋势", text_color=color.new(color.white, 25), text_halign=text.align_left, bgcolor=color.new(#0f172a, 15), text_size=size.small)
-    table.cell(panel, 1, 1, regimeText, text_color=regimeCol, text_halign=text.align_right, bgcolor=color.new(#0f172a, 15), text_size=size.small)
-    table.cell(panel, 0, 2, "票数", text_color=color.new(color.white, 25), text_halign=text.align_left, bgcolor=color.new(#0f172a, 15), text_size=size.small)
-    table.cell(panel, 1, 2, str.tostring(score) + " / 7", text_color=regimeCol, text_halign=text.align_right, bgcolor=color.new(#0f172a, 15), text_size=size.small)
-    table.cell(panel, 0, 3, "ADX", text_color=color.new(color.white, 25), text_halign=text.align_left, bgcolor=color.new(#0f172a, 15), text_size=size.small)
-    table.cell(panel, 1, 3, str.tostring(adxVal, "#.1"), text_color=choppy ? colChop : colUp, text_halign=text.align_right, bgcolor=color.new(#0f172a, 15), text_size=size.small)
-    table.cell(panel, 0, 4, "RSI", text_color=color.new(color.white, 25), text_halign=text.align_left, bgcolor=color.new(#0f172a, 15), text_size=size.small)
-    table.cell(panel, 1, 4, str.tostring(rsiVal, "#.1"), text_color=stretched ? colDn : color.white, text_halign=text.align_right, bgcolor=color.new(#0f172a, 15), text_size=size.small)
-    table.cell(panel, 0, 5, "%B", text_color=color.new(color.white, 25), text_halign=text.align_left, bgcolor=color.new(#0f172a, 15), text_size=size.small)
-    table.cell(panel, 1, 5, str.tostring(pctB, "#.2"), text_color=stretched ? colDn : color.white, text_halign=text.align_right, bgcolor=color.new(#0f172a, 15), text_size=size.small)
-    table.cell(panel, 0, 6, "ROC", text_color=color.new(color.white, 25), text_halign=text.align_left, bgcolor=color.new(#0f172a, 15), text_size=size.small)
-    table.cell(panel, 1, 6, str.tostring(rocVal, "#.2") + "%", text_color=rocVal > 0 ? colUp : colDn, text_halign=text.align_right, bgcolor=color.new(#0f172a, 15), text_size=size.small)
-    table.cell(panel, 0, 7, "纸上提示", text_color=color.new(color.white, 25), text_halign=text.align_left, bgcolor=color.new(#0f172a, 15), text_size=size.small)
-    table.cell(panel, 1, 7, hint, text_color=stretched or regime != "up" ? colChop : colUp, text_halign=text.align_right, bgcolor=color.new(#0f172a, 15), text_size=size.small)
-    table.cell(panel, 0, 8, "研究用 · 非投资建议", text_color=color.new(color.white, 45), text_halign=text.align_left, bgcolor=color.new(#0f172a, 15), text_size=size.tiny)
-    table.cell(panel, 1, 8, syminfo.ticker, text_color=color.new(color.white, 45), text_halign=text.align_right, bgcolor=color.new(#0f172a, 15), text_size=size.tiny)
+    panel.cell(0, 0, "量衡 BTC", text_color=color.white, text_halign=text.align_left, bgcolor=color.new(#0f172a, 0), text_size=size.small)
+    panel.cell(1, 0, timeframe.period, text_color=color.new(color.white, 20), text_halign=text.align_right, bgcolor=color.new(#0f172a, 0), text_size=size.small)
+    panel.cell(0, 1, "趋势", text_color=color.new(color.white, 25), text_halign=text.align_left, bgcolor=color.new(#0f172a, 15), text_size=size.small)
+    panel.cell(1, 1, regimeText, text_color=regimeCol, text_halign=text.align_right, bgcolor=color.new(#0f172a, 15), text_size=size.small)
+    panel.cell(0, 2, "票数", text_color=color.new(color.white, 25), text_halign=text.align_left, bgcolor=color.new(#0f172a, 15), text_size=size.small)
+    panel.cell(1, 2, str.tostring(score) + " / 7", text_color=regimeCol, text_halign=text.align_right, bgcolor=color.new(#0f172a, 15), text_size=size.small)
+    panel.cell(0, 3, "ADX", text_color=color.new(color.white, 25), text_halign=text.align_left, bgcolor=color.new(#0f172a, 15), text_size=size.small)
+    panel.cell(1, 3, str.tostring(adxVal, "#.1"), text_color=choppy ? colChop : colUp, text_halign=text.align_right, bgcolor=color.new(#0f172a, 15), text_size=size.small)
+    panel.cell(0, 4, "RSI", text_color=color.new(color.white, 25), text_halign=text.align_left, bgcolor=color.new(#0f172a, 15), text_size=size.small)
+    panel.cell(1, 4, str.tostring(rsiVal, "#.1"), text_color=stretched ? colDn : color.white, text_halign=text.align_right, bgcolor=color.new(#0f172a, 15), text_size=size.small)
+    panel.cell(0, 5, "%B", text_color=color.new(color.white, 25), text_halign=text.align_left, bgcolor=color.new(#0f172a, 15), text_size=size.small)
+    panel.cell(1, 5, str.tostring(pctB, "#.2"), text_color=stretched ? colDn : color.white, text_halign=text.align_right, bgcolor=color.new(#0f172a, 15), text_size=size.small)
+    panel.cell(0, 6, "ROC", text_color=color.new(color.white, 25), text_halign=text.align_left, bgcolor=color.new(#0f172a, 15), text_size=size.small)
+    panel.cell(1, 6, str.tostring(rocVal, "#.2") + "%", text_color=rocVal > 0.0 ? colUp : colDn, text_halign=text.align_right, bgcolor=color.new(#0f172a, 15), text_size=size.small)
+    panel.cell(0, 7, "纸上提示", text_color=color.new(color.white, 25), text_halign=text.align_left, bgcolor=color.new(#0f172a, 15), text_size=size.small)
+    panel.cell(1, 7, hint, text_color=stretched or regime != "up" ? colChop : colUp, text_halign=text.align_right, bgcolor=color.new(#0f172a, 15), text_size=size.small)
+    panel.cell(0, 8, "研究用 · 非投资建议", text_color=color.new(color.white, 45), text_halign=text.align_left, bgcolor=color.new(#0f172a, 15), text_size=size.tiny)
+    panel.cell(1, 8, syminfo.ticker, text_color=color.new(color.white, 45), text_halign=text.align_right, bgcolor=color.new(#0f172a, 15), text_size=size.tiny)
 
 alertcondition(turnedUp, title="BTC 转多", message="量衡 BTC 趋势转为偏多")
 alertcondition(turnedDn, title="BTC 转空", message="量衡 BTC 趋势转为偏空")
 alertcondition(turnedChop, title="BTC 进入震荡", message="量衡 BTC 趋势进入震荡")
-alertcondition(strongUp and not strongUp[1], title="BTC 强多", message="量衡 BTC 趋势进入强多（未拉伸）")
-alertcondition(stretched and not stretched[1], title="BTC 拉伸，回避追高", message="量衡 BTC 趋势：%B 与 RSI 显示拉伸")
+alertcondition(becameStrongUp, title="BTC 强多", message="量衡 BTC 趋势进入强多（未拉伸）")
+alertcondition(becameStretched, title="BTC 拉伸，回避追高", message="量衡 BTC 趋势：%B 与 RSI 显示拉伸")
