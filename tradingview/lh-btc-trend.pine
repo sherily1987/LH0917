@@ -3,8 +3,9 @@
 // 参数与终端策略模板对齐：SMA 10/30、EMA 12/26、MACD 12/26/9、唐奇安 20、ROC 20、RSI 14、ATR 14。
 // 研究指标，不是投资建议，也不会下真实订单。建议 BTCUSD / BTCUSDT，周期 15m、1h、4h 或 1D。
 // 未来趋势线是最近 N 根 K 线的回归外推，通道随投影距离变宽；它描述惯性，不保证未来走势。
+// 全文没有缩进行：TradingView 手机编辑器粘贴时会自动缩进，缩进块会让后续代码整体错位。
 
-indicator(title="量衡 BTC 趋势", shorttitle="LH BTC", overlay=true, max_labels_count=100, max_lines_count=50, max_bars_back=500)
+indicator(title="量衡 BTC 趋势", shorttitle="LH BTC", overlay=true, max_lines_count=50, max_labels_count=50)
 
 string gMa = "均线"
 int smaFastLen = input.int(10, "SMA 快线", minval=2, maxval=60, group=gMa)
@@ -56,11 +57,9 @@ color colUp = input.color(#22c55e, "多头", group=gVis)
 color colDn = input.color(#ef4444, "空头", group=gVis)
 color colChop = input.color(#94a3b8, "震荡", group=gVis)
 
-vote(bool condUp, bool condDn) =>
-    condUp ? 1 : condDn ? -1 : 0
-
-toPrice(float v) =>
-    projLog ? math.exp(v) : v
+vote(bool condUp, bool condDn) => condUp ? 1 : condDn ? -1 : 0
+toPrice(float v) => projLog ? math.exp(v) : v
+tv(color c) => showTable ? c : na
 
 float smaFast = ta.sma(close, smaFastLen)
 float smaSlow = ta.sma(close, smaSlowLen)
@@ -90,11 +89,22 @@ string hint = strongDn or regime == "down" ? "减仓 / 观望" : stretched or ch
 color regimeCol = regime == "up" ? colUp : regime == "down" ? colDn : colChop
 string regimeText = regime == "up" ? (strongUp ? "强多" : "偏多") : regime == "down" ? (strongDn ? "强空" : "偏空") : "震荡"
 
+// 回归残差标准差 = 样本标准差 × sqrt(1 - r²)，与逐根求残差等价，但不需要循环。
 float projSrc = projLog ? math.log(close) : close
 float lrNow = ta.linreg(projSrc, projLen, 0)
 float lrSlope = lrNow - ta.linreg(projSrc, projLen, 1)
-float projEndPrice = toPrice(lrNow + lrSlope * projBars)
+float projR = nz(ta.correlation(projSrc, bar_index, projLen))
+float resSd = ta.stdev(projSrc, projLen) * math.sqrt(math.max(0.0, 1.0 - projR * projR))
+float band = projDev * resSd
+float bandEnd = band * math.sqrt(1.0 + float(projBars) / projLen)
+int xStart = math.max(0, bar_index - projLen + 1)
+int xEnd = bar_index + projBars
+float midStart = lrNow - lrSlope * (projLen - 1)
+float midEnd = lrNow + lrSlope * projBars
+float projEndPrice = toPrice(midEnd)
 float projPct = close != 0.0 ? (projEndPrice / close - 1.0) * 100.0 : 0.0
+bool projOn = showProj and not na(lrNow) and not na(resSd)
+bool fitOn = projOn and projPast
 bool projDiverges = (lrSlope > 0.0 and regime == "down") or (lrSlope < 0.0 and regime == "up")
 color projCol = lrSlope > 0.0 ? colUp : lrSlope < 0.0 ? colDn : colChop
 string projText = (projPct >= 0.0 ? "+" : "") + str.tostring(projPct, "#.##") + "% · " + str.tostring(projBars) + " 根" + (projDiverges ? " · 背离" : "")
@@ -120,6 +130,7 @@ plot(atrPct, "ATR%", display=display.data_window)
 plot(diPlus, "DI+", display=display.data_window)
 plot(diMinus, "DI-", display=display.data_window)
 plot(bbMid, "布林中轨", display=display.data_window)
+plot(projOn ? projEndPrice : na, "投影价格", display=display.data_window)
 
 string prevRegime = bar_index > 0 ? regime[1] : "init"
 bool turnedUp = regime == "up" and prevRegime != "up"
@@ -128,77 +139,72 @@ bool turnedChop = regime == "chop" and prevRegime != "chop"
 bool becameStrongUp = strongUp and not strongUp[1]
 bool becameStretched = stretched and not stretched[1]
 
-if showLabels and turnedUp
-    label.new(bar_index, low, strongUp ? "强多" : "转多", style=label.style_label_up, color=colUp, textcolor=color.white, size=size.small)
-if showLabels and turnedDn
-    label.new(bar_index, high, strongDn ? "强空" : "转空", style=label.style_label_down, color=colDn, textcolor=color.white, size=size.small)
-if showLabels and turnedChop
-    label.new(bar_index, high, "震荡", style=label.style_label_down, color=colChop, textcolor=color.white, size=size.small)
+plotshape(showLabels and turnedUp and strongUp, title="强多标签", style=shape.labelup, location=location.belowbar, color=colUp, text="强多", textcolor=color.white, size=size.small)
+plotshape(showLabels and turnedUp and not strongUp, title="转多标签", style=shape.labelup, location=location.belowbar, color=colUp, text="转多", textcolor=color.white, size=size.small)
+plotshape(showLabels and turnedDn and strongDn, title="强空标签", style=shape.labeldown, location=location.abovebar, color=colDn, text="强空", textcolor=color.white, size=size.small)
+plotshape(showLabels and turnedDn and not strongDn, title="转空标签", style=shape.labeldown, location=location.abovebar, color=colDn, text="转空", textcolor=color.white, size=size.small)
+plotshape(showLabels and turnedChop, title="震荡标签", style=shape.labeldown, location=location.abovebar, color=colChop, text="震荡", textcolor=color.white, size=size.small)
 
-var line lnFitMid = na
-var line lnFitUp = na
-var line lnFitDn = na
-var line lnProjMid = na
-var line lnProjUp = na
-var line lnProjDn = na
-var linefill lfProj = na
-var label lbProj = na
+var line lnFitMid = line.new(bar_index, close, bar_index, close, width=1)
+var line lnFitUp = line.new(bar_index, close, bar_index, close, style=line.style_dotted, width=1)
+var line lnFitDn = line.new(bar_index, close, bar_index, close, style=line.style_dotted, width=1)
+var line lnProjMid = line.new(bar_index, close, bar_index, close, style=line.style_dashed, width=2)
+var line lnProjUp = line.new(bar_index, close, bar_index, close, style=line.style_dashed, width=1)
+var line lnProjDn = line.new(bar_index, close, bar_index, close, style=line.style_dashed, width=1)
+var linefill lfProj = linefill.new(lnProjUp, lnProjDn, color.new(colChop, 100))
+var label lbProj = label.new(bar_index, close, "", style=label.style_label_left, textcolor=color.white, size=size.small)
 
-if showProj and barstate.islast and not na(lrNow) and not na(lrSlope)
-    float sumSq = 0.0
-    for i = 0 to projLen - 1
-        float resid = projSrc[i] - (lrNow - lrSlope * i)
-        sumSq += resid * resid
-    float resSd = math.sqrt(sumSq / projLen)
-    float band = projDev * resSd
-    float bandEnd = band * math.sqrt(1.0 + float(projBars) / projLen)
-    int xStart = bar_index - projLen + 1
-    int xEnd = bar_index + projBars
-    float midStart = lrNow - lrSlope * (projLen - 1)
-    float midEnd = lrNow + lrSlope * projBars
+line.set_xy1(lnFitMid, xStart, toPrice(midStart))
+line.set_xy2(lnFitMid, bar_index, toPrice(lrNow))
+line.set_color(lnFitMid, fitOn ? color.new(projCol, 35) : na)
+line.set_xy1(lnFitUp, xStart, toPrice(midStart + band))
+line.set_xy2(lnFitUp, bar_index, toPrice(lrNow + band))
+line.set_color(lnFitUp, fitOn ? color.new(projCol, 65) : na)
+line.set_xy1(lnFitDn, xStart, toPrice(midStart - band))
+line.set_xy2(lnFitDn, bar_index, toPrice(lrNow - band))
+line.set_color(lnFitDn, fitOn ? color.new(projCol, 65) : na)
 
-    line.delete(lnFitMid)
-    line.delete(lnFitUp)
-    line.delete(lnFitDn)
-    line.delete(lnProjMid)
-    line.delete(lnProjUp)
-    line.delete(lnProjDn)
-    linefill.delete(lfProj)
-    label.delete(lbProj)
+line.set_xy1(lnProjMid, bar_index, toPrice(lrNow))
+line.set_xy2(lnProjMid, xEnd, toPrice(midEnd))
+line.set_color(lnProjMid, projOn ? projCol : na)
+line.set_xy1(lnProjUp, bar_index, toPrice(lrNow + band))
+line.set_xy2(lnProjUp, xEnd, toPrice(midEnd + bandEnd))
+line.set_color(lnProjUp, projOn ? color.new(projCol, 50) : na)
+line.set_xy1(lnProjDn, bar_index, toPrice(lrNow - band))
+line.set_xy2(lnProjDn, xEnd, toPrice(midEnd - bandEnd))
+line.set_color(lnProjDn, projOn ? color.new(projCol, 50) : na)
+linefill.set_color(lfProj, projOn ? color.new(projCol, 90) : color.new(colChop, 100))
 
-    if projPast
-        lnFitMid := line.new(xStart, toPrice(midStart), bar_index, toPrice(lrNow), color=color.new(projCol, 35), width=1)
-        lnFitUp := line.new(xStart, toPrice(midStart + band), bar_index, toPrice(lrNow + band), color=color.new(projCol, 65), style=line.style_dotted, width=1)
-        lnFitDn := line.new(xStart, toPrice(midStart - band), bar_index, toPrice(lrNow - band), color=color.new(projCol, 65), style=line.style_dotted, width=1)
+label.set_xy(lbProj, xEnd, toPrice(midEnd))
+label.set_text(lbProj, projOn ? "投影 " + str.tostring(projEndPrice, format.mintick) + "\n" + projText : "")
+label.set_color(lbProj, projOn ? color.new(projCol, 15) : na)
+label.set_textcolor(lbProj, projOn ? color.white : na)
 
-    lnProjMid := line.new(bar_index, toPrice(lrNow), xEnd, toPrice(midEnd), color=projCol, style=line.style_dashed, width=2)
-    lnProjUp := line.new(bar_index, toPrice(lrNow + band), xEnd, toPrice(midEnd + bandEnd), color=color.new(projCol, 50), style=line.style_dashed, width=1)
-    lnProjDn := line.new(bar_index, toPrice(lrNow - band), xEnd, toPrice(midEnd - bandEnd), color=color.new(projCol, 50), style=line.style_dashed, width=1)
-    lfProj := linefill.new(lnProjUp, lnProjDn, color.new(projCol, 90))
-    lbProj := label.new(xEnd, toPrice(midEnd), "投影 " + str.tostring(toPrice(midEnd), format.mintick) + "\n" + projText, style=label.style_label_left, color=color.new(projCol, 15), textcolor=color.white, size=size.small)
-
+color bgHead = tv(color.new(#0f172a, 0))
+color bgRow = tv(color.new(#0f172a, 15))
+color txKey = tv(color.new(color.white, 25))
+color txDim = tv(color.new(color.white, 45))
 var table panel = table.new(position.top_right, 2, 10, border_width=1)
-if showTable and barstate.islast
-    panel.cell(0, 0, "量衡 BTC", text_color=color.white, text_halign=text.align_left, bgcolor=color.new(#0f172a, 0), text_size=size.small)
-    panel.cell(1, 0, timeframe.period, text_color=color.new(color.white, 20), text_halign=text.align_right, bgcolor=color.new(#0f172a, 0), text_size=size.small)
-    panel.cell(0, 1, "趋势", text_color=color.new(color.white, 25), text_halign=text.align_left, bgcolor=color.new(#0f172a, 15), text_size=size.small)
-    panel.cell(1, 1, regimeText, text_color=regimeCol, text_halign=text.align_right, bgcolor=color.new(#0f172a, 15), text_size=size.small)
-    panel.cell(0, 2, "票数", text_color=color.new(color.white, 25), text_halign=text.align_left, bgcolor=color.new(#0f172a, 15), text_size=size.small)
-    panel.cell(1, 2, str.tostring(score) + " / 7", text_color=regimeCol, text_halign=text.align_right, bgcolor=color.new(#0f172a, 15), text_size=size.small)
-    panel.cell(0, 3, "ADX", text_color=color.new(color.white, 25), text_halign=text.align_left, bgcolor=color.new(#0f172a, 15), text_size=size.small)
-    panel.cell(1, 3, str.tostring(adxVal, "#.1"), text_color=choppy ? colChop : colUp, text_halign=text.align_right, bgcolor=color.new(#0f172a, 15), text_size=size.small)
-    panel.cell(0, 4, "RSI", text_color=color.new(color.white, 25), text_halign=text.align_left, bgcolor=color.new(#0f172a, 15), text_size=size.small)
-    panel.cell(1, 4, str.tostring(rsiVal, "#.1"), text_color=stretched ? colDn : color.white, text_halign=text.align_right, bgcolor=color.new(#0f172a, 15), text_size=size.small)
-    panel.cell(0, 5, "%B", text_color=color.new(color.white, 25), text_halign=text.align_left, bgcolor=color.new(#0f172a, 15), text_size=size.small)
-    panel.cell(1, 5, str.tostring(pctB, "#.2"), text_color=stretched ? colDn : color.white, text_halign=text.align_right, bgcolor=color.new(#0f172a, 15), text_size=size.small)
-    panel.cell(0, 6, "ROC", text_color=color.new(color.white, 25), text_halign=text.align_left, bgcolor=color.new(#0f172a, 15), text_size=size.small)
-    panel.cell(1, 6, str.tostring(rocVal, "#.2") + "%", text_color=rocVal > 0.0 ? colUp : colDn, text_halign=text.align_right, bgcolor=color.new(#0f172a, 15), text_size=size.small)
-    panel.cell(0, 7, "纸上提示", text_color=color.new(color.white, 25), text_halign=text.align_left, bgcolor=color.new(#0f172a, 15), text_size=size.small)
-    panel.cell(1, 7, hint, text_color=stretched or regime != "up" ? colChop : colUp, text_halign=text.align_right, bgcolor=color.new(#0f172a, 15), text_size=size.small)
-    panel.cell(0, 8, "未来趋势线", text_color=color.new(color.white, 25), text_halign=text.align_left, bgcolor=color.new(#0f172a, 15), text_size=size.small)
-    panel.cell(1, 8, showProj ? projText : "已关闭", text_color=projDiverges ? colChop : projCol, text_halign=text.align_right, bgcolor=color.new(#0f172a, 15), text_size=size.small)
-    panel.cell(0, 9, "研究用 · 非投资建议", text_color=color.new(color.white, 45), text_halign=text.align_left, bgcolor=color.new(#0f172a, 15), text_size=size.tiny)
-    panel.cell(1, 9, syminfo.ticker, text_color=color.new(color.white, 45), text_halign=text.align_right, bgcolor=color.new(#0f172a, 15), text_size=size.tiny)
+panel.cell(0, 0, "量衡 BTC", text_color=tv(color.white), text_halign=text.align_left, bgcolor=bgHead, text_size=size.small)
+panel.cell(1, 0, timeframe.period, text_color=tv(color.new(color.white, 20)), text_halign=text.align_right, bgcolor=bgHead, text_size=size.small)
+panel.cell(0, 1, "趋势", text_color=txKey, text_halign=text.align_left, bgcolor=bgRow, text_size=size.small)
+panel.cell(1, 1, regimeText, text_color=tv(regimeCol), text_halign=text.align_right, bgcolor=bgRow, text_size=size.small)
+panel.cell(0, 2, "票数", text_color=txKey, text_halign=text.align_left, bgcolor=bgRow, text_size=size.small)
+panel.cell(1, 2, str.tostring(score) + " / 7", text_color=tv(regimeCol), text_halign=text.align_right, bgcolor=bgRow, text_size=size.small)
+panel.cell(0, 3, "ADX", text_color=txKey, text_halign=text.align_left, bgcolor=bgRow, text_size=size.small)
+panel.cell(1, 3, str.tostring(adxVal, "#.1"), text_color=tv(choppy ? colChop : colUp), text_halign=text.align_right, bgcolor=bgRow, text_size=size.small)
+panel.cell(0, 4, "RSI", text_color=txKey, text_halign=text.align_left, bgcolor=bgRow, text_size=size.small)
+panel.cell(1, 4, str.tostring(rsiVal, "#.1"), text_color=tv(stretched ? colDn : color.white), text_halign=text.align_right, bgcolor=bgRow, text_size=size.small)
+panel.cell(0, 5, "%B", text_color=txKey, text_halign=text.align_left, bgcolor=bgRow, text_size=size.small)
+panel.cell(1, 5, str.tostring(pctB, "#.2"), text_color=tv(stretched ? colDn : color.white), text_halign=text.align_right, bgcolor=bgRow, text_size=size.small)
+panel.cell(0, 6, "ROC", text_color=txKey, text_halign=text.align_left, bgcolor=bgRow, text_size=size.small)
+panel.cell(1, 6, str.tostring(rocVal, "#.2") + "%", text_color=tv(rocVal > 0.0 ? colUp : colDn), text_halign=text.align_right, bgcolor=bgRow, text_size=size.small)
+panel.cell(0, 7, "纸上提示", text_color=txKey, text_halign=text.align_left, bgcolor=bgRow, text_size=size.small)
+panel.cell(1, 7, hint, text_color=tv(stretched or regime != "up" ? colChop : colUp), text_halign=text.align_right, bgcolor=bgRow, text_size=size.small)
+panel.cell(0, 8, "未来趋势线", text_color=txKey, text_halign=text.align_left, bgcolor=bgRow, text_size=size.small)
+panel.cell(1, 8, showProj ? projText : "已关闭", text_color=tv(projDiverges ? colChop : projCol), text_halign=text.align_right, bgcolor=bgRow, text_size=size.small)
+panel.cell(0, 9, "研究用 · 非投资建议", text_color=txDim, text_halign=text.align_left, bgcolor=bgRow, text_size=size.tiny)
+panel.cell(1, 9, syminfo.ticker, text_color=txDim, text_halign=text.align_right, bgcolor=bgRow, text_size=size.tiny)
 
 alertcondition(turnedUp, title="BTC 转多", message="量衡 BTC 趋势转为偏多")
 alertcondition(turnedDn, title="BTC 转空", message="量衡 BTC 趋势转为偏空")
