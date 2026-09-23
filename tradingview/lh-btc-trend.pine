@@ -151,7 +151,7 @@ if showProj and barstate.islast and not na(lrNow) and not na(lrSlope)
         sumSq += resid * resid
     float resSd = math.sqrt(sumSq / projLen)
     float band = projDev * resSd
-    float bandEnd = band * math.sqrt(1.0 + projBars / projLen)
+    float bandEnd = band * math.sqrt(1.0 + float(projBars) / projLen)
     int xStart = bar_index - projLen + 1
     int xEnd = bar_index + projBars
     float midStart = lrNow - lrSlope * (projLen - 1)
