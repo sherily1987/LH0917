@@ -1,9 +1,13 @@
 export function Sparkline({
   values,
   className,
+  width = 88,
+  height = 28,
 }: {
   values: number[];
   className?: string;
+  width?: number;
+  height?: number;
 }) {
   if (values.length < 2) {
     return <div className={className} />;
@@ -11,8 +15,6 @@ export function Sparkline({
   const min = Math.min(...values);
   const max = Math.max(...values);
   const span = max - min || 1;
-  const width = 88;
-  const height = 28;
   const points = values
     .map((value, i) => {
       const x = (i / (values.length - 1)) * width;

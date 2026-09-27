@@ -46,8 +46,11 @@ export default async function DashboardPage() {
             把行情、策略与回测放在同一套研究工作流里。
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Badge variant="outline">{source === "yahoo" ? "Yahoo 实时" : "演示数据"}</Badge>
+          <Button variant="outline" asChild>
+            <Link href="/desk">模拟交易台</Link>
+          </Button>
           <Button asChild>
             <Link href="/backtest">开始回测</Link>
           </Button>
