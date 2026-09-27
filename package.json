@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "desk:day": "vite-node --config vitest.config.mts scripts/desk-day.ts"
   },
   "dependencies": {
     "@typesafe-ai/sdk": "^0.6.0",
