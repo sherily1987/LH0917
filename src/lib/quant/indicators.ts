@@ -152,3 +152,93 @@ export function roc(values: number[], period: number): Array<number | null> {
   }
   return out;
 }
+
+export type AdxPoint = {
+  adx: number | null;
+  plusDi: number | null;
+  minusDi: number | null;
+};
+
+/** Wilder ADX. First smoothed bar is the sum of the first `period` true ranges. */
+export function adx(
+  highs: number[],
+  lows: number[],
+  closes: number[],
+  period = 14,
+): AdxPoint[] {
+  const n = Math.min(highs.length, lows.length, closes.length);
+  const out: AdxPoint[] = Array.from({ length: n }, () => ({
+    adx: null,
+    plusDi: null,
+    minusDi: null,
+  }));
+  if (n <= period + 1) return out;
+
+  const tr: number[] = [];
+  const plusDm: number[] = [];
+  const minusDm: number[] = [];
+  for (let i = 1; i < n; i++) {
+    const upMove = highs[i] - highs[i - 1];
+    const downMove = lows[i - 1] - lows[i];
+    plusDm.push(upMove > downMove && upMove > 0 ? upMove : 0);
+    minusDm.push(downMove > upMove && downMove > 0 ? downMove : 0);
+    tr.push(
+      Math.max(
+        highs[i] - lows[i],
+        Math.abs(highs[i] - closes[i - 1]),
+        Math.abs(lows[i] - closes[i - 1]),
+      ),
+    );
+  }
+
+  let smoothTr = 0;
+  let smoothPlus = 0;
+  let smoothMinus = 0;
+  for (let i = 0; i < period; i++) {
+    smoothTr += tr[i];
+    smoothPlus += plusDm[i];
+    smoothMinus += minusDm[i];
+  }
+
+  const dx: Array<number | null> = Array(n).fill(null);
+  const plusDi: Array<number | null> = Array(n).fill(null);
+  const minusDi: Array<number | null> = Array(n).fill(null);
+
+  const writeDi = (index: number, atrSum: number, plusSum: number, minusSum: number) => {
+    const pdi = atrSum === 0 ? 0 : (100 * plusSum) / atrSum;
+    const mdi = atrSum === 0 ? 0 : (100 * minusSum) / atrSum;
+    plusDi[index] = pdi;
+    minusDi[index] = mdi;
+    const sum = pdi + mdi;
+    dx[index] = sum === 0 ? 0 : (100 * Math.abs(pdi - mdi)) / sum;
+  };
+
+  writeDi(period, smoothTr, smoothPlus, smoothMinus);
+  for (let i = period; i < tr.length; i++) {
+    smoothTr = smoothTr - smoothTr / period + tr[i];
+    smoothPlus = smoothPlus - smoothPlus / period + plusDm[i];
+    smoothMinus = smoothMinus - smoothMinus / period + minusDm[i];
+    writeDi(i + 1, smoothTr, smoothPlus, smoothMinus);
+  }
+
+  let adxSum = 0;
+  let dxCount = 0;
+  let adxValue = 0;
+  let seeded = false;
+  for (let i = period; i < n; i++) {
+    if (dx[i] == null) continue;
+    if (!seeded) {
+      adxSum += dx[i]!;
+      dxCount += 1;
+      if (dxCount === period) {
+        adxValue = adxSum / period;
+        seeded = true;
+        out[i] = { adx: adxValue, plusDi: plusDi[i], minusDi: minusDi[i] };
+      }
+      continue;
+    }
+    adxValue = (adxValue * (period - 1) + dx[i]!) / period;
+    out[i] = { adx: adxValue, plusDi: plusDi[i], minusDi: minusDi[i] };
+  }
+  return out;
+}

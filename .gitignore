@@ -40,3 +40,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local paper ledger if a future process writes one; the desk keeps state in the browser
+/data/paper-ledger.json

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ema, rsi, sma } from "@/lib/quant/indicators";
+import { adx, ema, rsi, sma } from "@/lib/quant/indicators";
 
 describe("indicators", () => {
   it("computes SMA", () => {
@@ -20,6 +20,15 @@ describe("indicators", () => {
     const result = rsi(values, 5).filter((v): v is number => v != null);
     expect(result.length).toBeGreaterThan(0);
     expect(result.every((v) => v >= 0 && v <= 100)).toBe(true);
+  });
+
+  it("ADX leans positive in a rising market", () => {
+    const closes = Array.from({ length: 80 }, (_, i) => 100 + i * 0.8);
+    const highs = closes.map((close) => close + 0.4);
+    const lows = closes.map((close) => close - 0.3);
+    const last = adx(highs, lows, closes, 14).at(-1);
+    expect(last?.adx).not.toBeNull();
+    expect(last?.plusDi ?? 0).toBeGreaterThan(last?.minusDi ?? 0);
   });
 
   it("RSI is 100 when there are only gains", () => {
