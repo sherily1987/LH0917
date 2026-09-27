@@ -110,6 +110,28 @@ describe("desk day replay", () => {
     }
   });
 
+  it("opens shorts only when both sides are enabled, and never twice on one bar", () => {
+    const bars = pathBars(100, -1);
+    const windowStart = bars[90].time;
+    const longOnly = replayDeskWindow({ bars, windowStart, capital: 10_000 });
+    const both = replayDeskWindow({ bars, windowStart, capital: 10_000, sides: "both" });
+
+    expect(longOnly.sides).toBe("long");
+    expect(longOnly.entries).toBe(0);
+    expect(longOnly.shortEntries).toBe(0);
+    expect(longOnly.position).toBe("flat");
+
+    expect(both.sides).toBe("both");
+    expect(both.shortEntries).toBeGreaterThan(0);
+    expect(both.longEntries).toBe(0);
+    expect(both.entries).toBe(both.shortEntries);
+    const times = both.trades.map((trade) => trade.time);
+    expect(new Set(times).size).toBe(times.length);
+    for (const trade of both.trades) {
+      if (trade.effect === "open") expect(trade.positionSide).toBe("short");
+    }
+  });
+
   it("rejects an empty series", () => {
     expect(() => replayDeskWindow({ bars: [], windowStart: START })).toThrow(/没有 K 线/);
   });

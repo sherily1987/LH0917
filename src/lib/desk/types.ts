@@ -34,7 +34,7 @@ export type DeskMarket = {
 };
 
 export type DeskPosition = {
-  side: "long";
+  side: "long" | "short";
   quantity: number;
   entryPrice: number;
   openedAt: number;
@@ -44,6 +44,8 @@ export type DeskTrade = {
   id: string;
   time: number;
   side: "buy" | "sell";
+  /** Which book the fill opens or closes. Long-only steps only write "long". */
+  positionSide: "long" | "short";
   quantity: number;
   price: number;
   reason: string;
@@ -102,6 +104,13 @@ export type DeskVeto = {
   reason?: string;
 };
 
+/**
+ * "long" is the desk default: open longs only.
+ * "both" is the paper replay: longs and shorts, still one position, no leverage.
+ * The HTTP step parser never sets this, so /desk stays long-only.
+ */
+export type DeskSides = "long" | "both";
+
 export type DeskStepInput = {
   ledger: DeskLedger | null;
   market: DeskMarket;
@@ -110,6 +119,7 @@ export type DeskStepInput = {
   capital?: number;
   agentRunning?: boolean;
   veto?: DeskVeto | null;
+  sides?: DeskSides;
 };
 
 export type DeskStepResult = {

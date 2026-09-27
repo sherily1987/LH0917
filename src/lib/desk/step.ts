@@ -22,6 +22,7 @@ import {
   type DeskMarket,
   type DeskRegime,
   type DeskRisk,
+  type DeskSides,
   type DeskStepInput,
   type DeskStepResult,
   type DeskTrade,
@@ -38,6 +39,14 @@ function makeDecision(input: DeskDecision): DeskDecision {
   return input;
 }
 
+/**
+ * Shorts are allowed only when the regime is down (at least 5 of 7 votes)
+ * and Bollinger %B is strictly above 0. %B <= 0 is stretched downward.
+ */
+export function canEnterShort(reading: Pick<RegimeReading, "regime" | "bollingerPercentB">): boolean {
+  return reading.regime === "down" && reading.bollingerPercentB != null && reading.bollingerPercentB > 0;
+}
+
 export function stepDesk(input: DeskStepInput): DeskStepResult {
   const command: DeskCommand = input.command ?? "step";
   if (!COMMANDS.has(command)) throw new DeskError("不支持的指令。");
@@ -45,9 +54,11 @@ export function stepDesk(input: DeskStepInput): DeskStepResult {
   const risk = clampRisk(input.risk);
   const capital = normalizeCapital(input.capital ?? input.ledger?.startingCapital ?? DEFAULT_CAPITAL);
   const agentRunning = input.agentRunning !== false;
+  const sides: DeskSides = input.sides === "both" ? "both" : "long";
   let ledger = input.ledger ?? createLedger(capital, market.time);
 
-  const key = command === "reset" ? `reset:${market.time}:${capital}` : `${command}:${market.time}`;
+  const sideKey = sides === "both" ? ":both" : "";
+  const key = command === "reset" ? `reset:${market.time}:${capital}` : `${command}:${market.time}${sideKey}`;
   if (ledger.appliedKey === key && ledger.lastDecision) {
     return { ledger, decision: ledger.lastDecision, execution: "paper", risk };
   }
@@ -77,19 +88,34 @@ export function stepDesk(input: DeskStepInput): DeskStepResult {
       ledger = latchHalt(ledger, market.price, risk);
       return finish(ledger, market, risk, reading, key, "wait", "当前没有模拟持仓。");
     }
-    ledger = closePosition(ledger, market.price, market.time, "手动平仓，按最新公开价结束模拟多单。");
+    const flatReason =
+      ledger.position.side === "short"
+        ? "手动平仓，按最新公开价结束模拟空单。"
+        : "手动平仓，按最新公开价结束模拟多单。";
+    ledger = closePosition(ledger, market.price, market.time, flatReason);
     ledger = latchHalt(ledger, market.price, risk);
-    return finish(ledger, market, risk, reading, key, "flatten", "手动平仓，按最新公开价结束模拟多单。");
+    return finish(ledger, market, risk, reading, key, "flatten", flatReason);
   }
 
   const exitReason = exitIfNeeded(ledger, market, risk, reading.regime, agentRunning);
   if (exitReason && ledger.position) {
+    // Close on this bar and stop. A flip cannot open the other side until a later bar,
+    // so one print is never both an exit and an entry.
     ledger = closePosition(ledger, market.price, market.time, exitReason);
     ledger = latchHalt(ledger, market.price, risk);
     return finish(ledger, market, risk, reading, key, "exit", exitReason);
   }
 
   ledger = latchHalt(ledger, market.price, risk);
+
+  if (ledger.position?.side === "short") {
+    const hold = ledger.halted
+      ? `继续持有空单。${ledger.haltReason}`
+      : agentRunning
+        ? `继续持有空单。未触发止损（${pct(risk.stopPct)}）、止盈（${pct(risk.takeProfitPct)}）或趋势转多。${reading.summary}`
+        : "代理已停止，持仓保留。仍在检查止损和止盈；要立刻结束请平仓。";
+    return finish(ledger, market, risk, reading, key, "wait", hold);
+  }
 
   if (ledger.position) {
     const hold = ledger.halted
@@ -113,14 +139,55 @@ export function stepDesk(input: DeskStepInput): DeskStepResult {
     );
   }
 
-  const block = entryBlock(reading, agentRunning, input.veto);
+  const block = entryBlock(reading, agentRunning, input.veto, sides);
   if (block) return finish(ledger, market, risk, reading, key, "wait", block);
 
+  const openingShort = sides === "both" && canEnterShort(reading);
   const equity = markEquity(ledger, market.price);
   const notional = Math.min(ledger.cash, equity * risk.positionPct);
   const quantity = roundQty(notional / market.price);
   if (!(quantity > 0) || quantity * market.price > ledger.cash + 1e-6) {
-    return finish(ledger, market, risk, reading, key, "wait", "可用模拟资金不够买下一笔，等待。");
+    return finish(
+      ledger,
+      market,
+      risk,
+      reading,
+      key,
+      "wait",
+      openingShort ? "可用模拟资金不够开下一笔空单，等待。" : "可用模拟资金不够买下一笔，等待。",
+    );
+  }
+
+  if (openingShort) {
+    const fill = paper.submit({
+      symbol: DESK_SYMBOL,
+      side: "sell",
+      quantity,
+      price: market.price,
+    });
+    const reason = `趋势向下且未过度下跌，按净值的 ${pct(risk.positionPct)} 开空。这是模拟成交，不是投资建议。`;
+    const sale: DeskTrade = {
+      id: `sell-${market.time}`,
+      time: market.time,
+      side: "sell",
+      positionSide: "short",
+      quantity: fill.quantity,
+      price: fill.price,
+      reason,
+      pnl: null,
+    };
+    ledger = {
+      ...ledger,
+      cash: roundCash(ledger.cash + fill.price * fill.quantity),
+      position: {
+        side: "short",
+        quantity: fill.quantity,
+        entryPrice: fill.price,
+        openedAt: market.time,
+      },
+      trades: [...ledger.trades, sale].slice(-80),
+    };
+    return finish(ledger, market, risk, reading, key, "enter", reason);
   }
 
   const fill = paper.submit({
@@ -134,6 +201,7 @@ export function stepDesk(input: DeskStepInput): DeskStepResult {
     id: `buy-${market.time}`,
     time: market.time,
     side: "buy",
+    positionSide: "long",
     quantity: fill.quantity,
     price: fill.price,
     reason,
@@ -196,6 +264,16 @@ function exitIfNeeded(
 ): string | null {
   if (!ledger.position) return null;
   const entry = ledger.position.entryPrice;
+  if (ledger.position.side === "short") {
+    if (market.price >= entry * (1 + risk.stopPct)) {
+      return `触发硬止损：现价较入场价上涨达到 ${pct(risk.stopPct)}，平空。`;
+    }
+    if (market.price <= entry * (1 - risk.takeProfitPct)) {
+      return `触发止盈：现价较入场价下跌达到 ${pct(risk.takeProfitPct)}，平空。`;
+    }
+    if (agentRunning && regime === "up") return "趋势投票转为向上，平空。";
+    return null;
+  }
   if (market.price <= entry * (1 - risk.stopPct)) {
     return `触发硬止损：现价较入场价下跌达到 ${pct(risk.stopPct)}，平多。`;
   }
@@ -208,17 +286,44 @@ function exitIfNeeded(
 
 function closePosition(ledger: DeskLedger, price: number, time: number, reason: string): DeskLedger {
   if (!ledger.position) return ledger;
+  const position = ledger.position;
+  if (position.side === "short") {
+    const fill = paper.submit({
+      symbol: DESK_SYMBOL,
+      side: "buy",
+      quantity: position.quantity,
+      price,
+    });
+    const pnl = roundCash((position.entryPrice - fill.price) * fill.quantity);
+    const cover: DeskTrade = {
+      id: `buy-${time}`,
+      time,
+      side: "buy",
+      positionSide: "short",
+      quantity: fill.quantity,
+      price: fill.price,
+      reason,
+      pnl,
+    };
+    return {
+      ...ledger,
+      cash: roundCash(ledger.cash - fill.price * fill.quantity),
+      position: null,
+      trades: [...ledger.trades, cover].slice(-80),
+    };
+  }
   const fill = paper.submit({
     symbol: DESK_SYMBOL,
     side: "sell",
-    quantity: ledger.position.quantity,
+    quantity: position.quantity,
     price,
   });
-  const pnl = roundCash((fill.price - ledger.position.entryPrice) * fill.quantity);
+  const pnl = roundCash((fill.price - position.entryPrice) * fill.quantity);
   const sell: DeskTrade = {
     id: `sell-${time}`,
     time,
     side: "sell",
+    positionSide: "long",
     quantity: fill.quantity,
     price: fill.price,
     reason,
@@ -244,11 +349,23 @@ function latchHalt(ledger: DeskLedger, price: number, risk: DeskRisk): DeskLedge
   };
 }
 
-function entryBlock(reading: RegimeReading, agentRunning: boolean, veto: DeskStepInput["veto"]): string | null {
+function entryBlock(
+  reading: RegimeReading,
+  agentRunning: boolean,
+  veto: DeskStepInput["veto"],
+  sides: DeskSides,
+): string | null {
   if (!agentRunning) return "代理已停止，不开新仓。";
   if (veto?.blockEntry) {
     const note = veto.reason?.trim();
     return note ? `外部风控否决开仓：${note.slice(0, 120)}` : "外部风控否决开仓，等待。";
+  }
+  if (sides === "both" && reading.regime === "down") {
+    if (!canEnterShort(reading)) {
+      const band = reading.bollingerPercentB;
+      return `趋势向下，但布林 %B${band == null ? " 不足" : ` 为 ${band.toFixed(2)}`}，价格过度下跌，不开空。`;
+    }
+    return null;
   }
   if (reading.regime !== "up") return reading.summary;
   if (reading.stretched) {

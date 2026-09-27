@@ -3,7 +3,10 @@ import type { DeskCandle, DeskRegime, DeskVote, DeskVoteName } from "@/lib/desk/
 
 export type RegimeReading = {
   regime: DeskRegime;
+  /** %B >= 1. Blocks new longs. Not a vote. */
   stretched: boolean;
+  /** %B <= 0. Blocks new shorts in the both-sides replay. Not a vote. */
+  compressed: boolean;
   votes: DeskVote[];
   upVotes: number;
   downVotes: number;
@@ -40,13 +43,14 @@ function vote(name: DeskVoteName, value: -1 | 0 | 1, detail: string): DeskVote {
 
 /**
  * Seven directional votes. A side needs 5 to call the regime.
- * Bollinger %B is not a vote: %B >= 1 means the price is stretched and blocks new longs.
+ * Bollinger %B is not a vote: %B >= 1 blocks new longs, %B <= 0 blocks new shorts.
  */
 export function readRegime(candles: DeskCandle[]): RegimeReading {
   if (candles.length < 40) {
     return {
       regime: "unknown",
       stretched: false,
+      compressed: false,
       votes: [],
       upVotes: 0,
       downVotes: 0,
@@ -128,6 +132,7 @@ export function readRegime(candles: DeskCandle[]): RegimeReading {
   const downVotes = votes.filter((item) => item.vote < 0).length;
   const regime: DeskRegime = upVotes >= 5 ? "up" : downVotes >= 5 ? "down" : "range";
   const stretched = percentB != null && percentB >= 1;
+  const compressed = percentB != null && percentB <= 0;
   const summary =
     regime === "up"
       ? `七项投票看多 ${upVotes}、看空 ${downVotes}，趋势向上。`
@@ -138,6 +143,7 @@ export function readRegime(candles: DeskCandle[]): RegimeReading {
   return {
     regime,
     stretched,
+    compressed,
     votes,
     upVotes,
     downVotes,

@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { createLedger } from "@/lib/desk/ledger";
+import { createLedger, markEquity, roundCash } from "@/lib/desk/ledger";
 import { readRegime } from "@/lib/desk/regime";
 import { clampRisk } from "@/lib/desk/risk";
-import { stepDesk } from "@/lib/desk/step";
+import { canEnterShort, parseStepBody, stepDesk } from "@/lib/desk/step";
 import { DEFAULT_RISK, type DeskCandle, type DeskLedger, type DeskMarket } from "@/lib/desk/types";
 
 const START = 1_700_000_000;
@@ -53,6 +53,45 @@ function longLedger(entry: number, time: number): DeskLedger {
     ...ledger,
     cash: 8_000,
     position: { side: "long", quantity: 0.02, entryPrice: entry, openedAt: time },
+  };
+}
+
+function crushBelowBand(candles: DeskCandle[]): DeskCandle[] {
+  const next = candles.map((item) => ({ ...item }));
+  for (let i = 0; i < 8; i++) {
+    const reading = readRegime(next);
+    if (
+      reading.regime === "down" &&
+      reading.downVotes >= 5 &&
+      reading.bollingerPercentB != null &&
+      reading.bollingerPercentB <= 0
+    ) {
+      return next;
+    }
+    const last = next[next.length - 1];
+    last.close *= 0.992;
+    last.low = Math.min(last.low, last.close);
+  }
+  return next;
+}
+
+function fundedLong(price: number, time: number): DeskLedger {
+  const ledger = createLedger(10_000, time);
+  const quantity = 0.02;
+  return {
+    ...ledger,
+    cash: roundCash(10_000 - quantity * price),
+    position: { side: "long", quantity, entryPrice: price, openedAt: time },
+  };
+}
+
+function fundedShort(price: number, time: number): DeskLedger {
+  const ledger = createLedger(10_000, time);
+  const quantity = 0.02;
+  return {
+    ...ledger,
+    cash: roundCash(10_000 + quantity * price),
+    position: { side: "short", quantity, entryPrice: price, openedAt: time },
   };
 }
 
@@ -157,6 +196,158 @@ describe("desk step", () => {
     expect(once.decision.action).toBe("flatten");
     expect(twice.ledger).toEqual(once.ledger);
     expect(twice.execution).toBe("paper");
+  });
+
+  it("enters short when five votes are down and percent B is above zero", () => {
+    const candles = pathCandles(-1);
+    const reading = readRegime(candles);
+    expect(reading.regime).toBe("down");
+    expect(reading.downVotes).toBeGreaterThanOrEqual(5);
+    expect(reading.bollingerPercentB).toBeGreaterThan(0);
+    expect(canEnterShort(reading)).toBe(true);
+
+    const market = marketFrom(candles);
+    const blocked = stepDesk({ ledger: createLedger(10_000, market.time), market });
+    expect(blocked.ledger.position).toBeNull();
+    expect(blocked.decision.action).not.toBe("enter");
+
+    const result = stepDesk({
+      ledger: createLedger(10_000, market.time),
+      market,
+      sides: "both",
+    });
+    expect(result.decision.action).toBe("enter");
+    expect(result.decision.reason).toContain("开空");
+    expect(result.ledger.position?.side).toBe("short");
+    const position = result.ledger.position!;
+    const notional = position.quantity * position.entryPrice;
+    expect(notional).toBeLessThanOrEqual(10_000 * 0.2 + 1e-4);
+    expect(notional).toBeGreaterThan(1_900);
+    expect(markEquity(result.ledger, market.price)).toBeCloseTo(10_000, 4);
+    expect(result.execution).toBe("paper");
+  });
+
+  it("does not short when percent B is at or below zero", () => {
+    expect(canEnterShort({ regime: "down", bollingerPercentB: 0 })).toBe(false);
+    expect(canEnterShort({ regime: "down", bollingerPercentB: -0.01 })).toBe(false);
+    expect(canEnterShort({ regime: "down", bollingerPercentB: null })).toBe(false);
+    expect(canEnterShort({ regime: "range", bollingerPercentB: 0.4 })).toBe(false);
+
+    const candles = crushBelowBand(pathCandles(-1));
+    const reading = readRegime(candles);
+    expect(reading.regime).toBe("down");
+    expect(reading.downVotes).toBeGreaterThanOrEqual(5);
+    expect(reading.bollingerPercentB).not.toBeNull();
+    expect(reading.bollingerPercentB!).toBeLessThanOrEqual(0);
+
+    const market = marketFrom(candles);
+    const result = stepDesk({
+      ledger: createLedger(10_000, market.time),
+      market,
+      sides: "both",
+    });
+    expect(result.ledger.position).toBeNull();
+    expect(result.decision.action).not.toBe("enter");
+    expect(result.decision.reason).toContain("不开空");
+  });
+
+  it("stops a short out when price rises two percent", () => {
+    const candles = pathCandles(1);
+    const time = candles.at(-1)!.time;
+    const result = stepDesk({
+      ledger: fundedShort(100, time),
+      market: marketFrom(candles, 103),
+      sides: "both",
+    });
+    expect(result.decision.action).toBe("exit");
+    expect(result.decision.reason).toContain("止损");
+    expect(result.decision.reason).toContain("平空");
+    expect(result.ledger.position).toBeNull();
+    expect(result.ledger.cash).toBeCloseTo(10_000 + 0.02 * 100 - 0.02 * 103, 6);
+    expect(result.ledger.trades.at(-1)?.pnl).toBeCloseTo(-0.06, 6);
+  });
+
+  it("takes profit on a short when price falls four percent", () => {
+    const candles = pathCandles(1);
+    const time = candles.at(-1)!.time;
+    const result = stepDesk({
+      ledger: fundedShort(100, time),
+      market: marketFrom(candles, 95),
+      sides: "both",
+    });
+    expect(result.decision.action).toBe("exit");
+    expect(result.decision.reason).toContain("止盈");
+    expect(result.decision.reason).toContain("平空");
+    expect(result.ledger.position).toBeNull();
+    expect(result.ledger.cash).toBeCloseTo(10_000 + 0.02 * 100 - 0.02 * 95, 6);
+    expect(result.ledger.trades.at(-1)?.pnl).toBeCloseTo(0.1, 6);
+  });
+
+  it("does not reverse from long to short on the same bar", () => {
+    const candles = pathCandles(-1);
+    const reading = readRegime(candles);
+    expect(reading.regime).toBe("down");
+    expect(reading.downVotes).toBeGreaterThanOrEqual(5);
+    expect(reading.bollingerPercentB).toBeGreaterThan(0);
+
+    const market = marketFrom(candles);
+    const closed = stepDesk({
+      ledger: fundedLong(market.price, market.time),
+      market,
+      sides: "both",
+    });
+    expect(closed.decision.action).toBe("exit");
+    expect(closed.decision.reason).toContain("平多");
+    expect(closed.ledger.position).toBeNull();
+    expect(closed.ledger.trades.filter((trade) => trade.positionSide === "short")).toHaveLength(0);
+    expect(closed.ledger.halted).toBe(false);
+
+    const last = candles[candles.length - 1];
+    const nextClose = last.close * 0.999;
+    const nextCandles = [
+      ...candles,
+      {
+        time: last.time + 86_400,
+        high: Math.max(last.close, nextClose) * 1.001,
+        low: Math.min(last.close, nextClose) * 0.999,
+        close: nextClose,
+      },
+    ];
+    const nextReading = readRegime(nextCandles);
+    expect(nextReading.regime).toBe("down");
+    expect(nextReading.bollingerPercentB).toBeGreaterThan(0);
+    const nextMarket = marketFrom(nextCandles);
+    const opened = stepDesk({
+      ledger: closed.ledger,
+      market: nextMarket,
+      sides: "both",
+    });
+    expect(opened.decision.action).toBe("enter");
+    expect(opened.ledger.position?.side).toBe("short");
+    expect(opened.ledger.position?.openedAt).toBe(nextMarket.time);
+    expect(opened.ledger.trades.filter((trade) => trade.time === market.time && trade.positionSide === "short")).toHaveLength(0);
+
+    const up = easeInsideBand(pathCandles(1));
+    const upMarket = marketFrom(up);
+    const covered = stepDesk({
+      ledger: fundedShort(upMarket.price, upMarket.time),
+      market: upMarket,
+      sides: "both",
+    });
+    expect(covered.decision.action).toBe("exit");
+    expect(covered.decision.reason).toContain("平空");
+    expect(covered.ledger.position).toBeNull();
+    expect(covered.ledger.trades.some((trade) => trade.positionSide === "long" && trade.pnl == null)).toBe(false);
+  });
+
+  it("does not enable shorts from the public step body", () => {
+    const candles = pathCandles(-1);
+    const market = marketFrom(candles);
+    const parsed = parseStepBody({ command: "step", market, sides: "both" });
+    expect(parsed.sides).toBeUndefined();
+    const result = stepDesk(parsed);
+    expect(result.ledger.position).toBeNull();
+    expect(result.decision.action).not.toBe("enter");
   });
 
   it("does not send a live order from the decision module", () => {

@@ -7,6 +7,7 @@ import {
   type DeskCandle,
   type DeskDecision,
   type DeskRisk,
+  type DeskSides,
   type DeskTrade,
 } from "@/lib/desk/types";
 
@@ -20,6 +21,8 @@ export type DeskReplayBar = {
 export type DeskReplayTrade = {
   time: number;
   side: "buy" | "sell";
+  positionSide: "long" | "short";
+  effect: "open" | "close";
   quantity: number;
   price: number;
   reason: string;
@@ -38,13 +41,19 @@ export type DeskReplayResult = {
   returnPct: number;
   entries: number;
   exits: number;
-  position: "long" | "flat";
+  longEntries: number;
+  shortEntries: number;
+  wins: number;
+  losses: number;
+  scratches: number;
+  position: "long" | "short" | "flat";
   openQuantity: number | null;
   openEntryPrice: number | null;
   openUnrealizedPnl: number | null;
   trades: DeskReplayTrade[];
   maxDrawdownUsdt: number;
   maxDrawdownPct: number;
+  sides: DeskSides;
   halted: boolean;
   haltReason: string | null;
   lastDecision: DeskDecision | null;
@@ -58,12 +67,16 @@ export class ReplayError extends Error {}
  * Each step receives the current bar inside the candle list. `stepDesk` would
  * otherwise fold a print into the previous candle whenever the gap is under one
  * day, which is correct for daily bars plus a live quote and wrong for 15m bars.
+ *
+ * `sides` defaults to long-only. "both" also opens shorts. A close still returns
+ * inside `stepDesk` before any new order, so a flip does not reverse on the same bar.
  */
 export function replayDeskWindow(input: {
   bars: DeskReplayBar[];
   windowStart: number;
   capital?: number;
   risk?: Partial<DeskRisk>;
+  sides?: DeskSides;
 }): DeskReplayResult {
   if (!Number.isFinite(input.windowStart) || input.windowStart <= 0) {
     throw new ReplayError("回放窗口起点无效。");
@@ -73,12 +86,15 @@ export function replayDeskWindow(input: {
   if (startIndex < 0) throw new ReplayError("窗口内没有 K 线。");
 
   const capital = input.capital ?? DEFAULT_CAPITAL;
+  const sides: DeskSides = input.sides === "both" ? "both" : "long";
   const first = candles[startIndex];
   const last = candles[candles.length - 1];
   let ledger = createLedger(capital, first.time);
   const startingEquity = ledger.cash;
   const equities = [startingEquity];
   const regimeCounts = { up: 0, down: 0, range: 0, unknown: 0, stretched: 0 };
+  const trades: DeskReplayTrade[] = [];
+  const seen = new Set<string>();
 
   for (let i = startIndex; i < candles.length; i++) {
     const bar = candles[i];
@@ -94,23 +110,30 @@ export function replayDeskWindow(input: {
       command: "step",
       capital: startingEquity,
       agentRunning: true,
+      sides,
     });
     ledger = result.ledger;
     equities.push(markEquity(ledger, bar.close));
     regimeCounts[result.decision.regime] += 1;
     if (result.decision.stretched) regimeCounts.stretched += 1;
+    for (const trade of result.ledger.trades) {
+      if (seen.has(trade.id) || trade.time < first.time) continue;
+      seen.add(trade.id);
+      trades.push(toReplayTrade(trade));
+    }
   }
 
   const endingEquity = equities[equities.length - 1] ?? startingEquity;
-  const trades = ledger.trades
-    .filter((trade) => trade.time >= first.time)
-    .map(toReplayTrade);
-  const entries = trades.filter((trade) => trade.side === "buy").length;
-  const exits = trades.filter((trade) => trade.side === "sell").length;
+  const entries = trades.filter((trade) => trade.effect === "open").length;
+  const exits = trades.filter((trade) => trade.effect === "close").length;
+  const longEntries = trades.filter((trade) => trade.effect === "open" && trade.positionSide === "long").length;
+  const shortEntries = trades.filter((trade) => trade.effect === "open" && trade.positionSide === "short").length;
+  const wins = trades.filter((trade) => trade.effect === "close" && (trade.pnl ?? 0) > 0).length;
+  const losses = trades.filter((trade) => trade.effect === "close" && (trade.pnl ?? 0) < 0).length;
+  const scratches = trades.filter((trade) => trade.effect === "close" && (trade.pnl ?? 0) === 0).length;
   const drawdown = maxDrawdown(equities);
   const position = ledger.position;
-  const unrealized =
-    position == null ? null : roundCash((last.close - position.entryPrice) * position.quantity);
+  const unrealized = unrealizedPnl(position, last.close);
 
   return {
     windowStart: first.time,
@@ -123,13 +146,19 @@ export function replayDeskWindow(input: {
     returnPct: startingEquity === 0 ? 0 : (endingEquity - startingEquity) / startingEquity,
     entries,
     exits,
-    position: position ? "long" : "flat",
+    longEntries,
+    shortEntries,
+    wins,
+    losses,
+    scratches,
+    position: position?.side ?? "flat",
     openQuantity: position?.quantity ?? null,
     openEntryPrice: position?.entryPrice ?? null,
     openUnrealizedPnl: unrealized,
     trades,
     maxDrawdownUsdt: drawdown.usdt,
     maxDrawdownPct: drawdown.pct,
+    sides,
     halted: ledger.halted,
     haltReason: ledger.haltReason,
     lastDecision: ledger.lastDecision,
@@ -137,10 +166,24 @@ export function replayDeskWindow(input: {
   };
 }
 
+function unrealizedPnl(
+  position: { side: "long" | "short"; quantity: number; entryPrice: number } | null,
+  price: number,
+): number | null {
+  if (!position) return null;
+  const raw =
+    position.side === "short"
+      ? (position.entryPrice - price) * position.quantity
+      : (price - position.entryPrice) * position.quantity;
+  return roundCash(raw);
+}
+
 function toReplayTrade(trade: DeskTrade): DeskReplayTrade {
   return {
     time: trade.time,
     side: trade.side,
+    positionSide: trade.positionSide,
+    effect: trade.pnl == null ? "open" : "close",
     quantity: trade.quantity,
     price: trade.price,
     reason: trade.reason,

@@ -36,11 +36,31 @@ const YAHOO_ATTEMPTS: Array<{ host: string; interval: string; range: string }> =
   { host: "query1.finance.yahoo.com", interval: "1h", range: "5d" },
 ];
 
+const YAHOO_BOTH: Array<{ host: string; interval: string; range: string }> = [
+  { host: "query1.finance.yahoo.com", interval: "15m", range: "60d" },
+  { host: "query2.finance.yahoo.com", interval: "15m", range: "60d" },
+  { host: "query1.finance.yahoo.com", interval: "15m", range: "30d" },
+  { host: "query2.finance.yahoo.com", interval: "15m", range: "30d" },
+  ...YAHOO_ATTEMPTS,
+];
+
+/** First bar `readRegime` can score: 40 candles including the bar itself. */
+const FIRST_TRADABLE_INDEX = 39;
+const PRIOR_SLICE_START = "2026-09-26T09:45:00Z";
+const PRIOR_SLICE_END = "2026-09-27T09:41:00Z";
+const FIVE_DAY_SEED = "2026-09-23T00:00:00Z";
+
 async function main() {
-  const loaded = await loadRealBars();
+  const both = process.argv.includes("--both");
+  const loaded = await loadRealBars(both ? YAHOO_BOTH : YAHOO_ATTEMPTS);
   const last = loaded.bars[loaded.bars.length - 1];
   if (!last || !(last.close > 1_000) || last.close > 10_000_000) {
     throw new Error("拿到的价格不像 BTC 真实行情，已停止，不会用假数据。");
+  }
+
+  if (both) {
+    console.log(formatComparison(loaded));
+    return;
   }
 
   const windowStart = last.time - DAY_SEC;
@@ -59,9 +79,11 @@ async function main() {
   console.log(formatReport(loaded, report));
 }
 
-async function loadRealBars(): Promise<LoadedBars> {
+async function loadRealBars(
+  attempts: Array<{ host: string; interval: string; range: string }>,
+): Promise<LoadedBars> {
   const errors: string[] = [];
-  for (const attempt of YAHOO_ATTEMPTS) {
+  for (const attempt of attempts) {
     const url = yahooUrl(attempt);
     try {
       const bars = await fetchYahoo(url);
@@ -161,6 +183,187 @@ async function fetchCryptoCompare(): Promise<LoadedBars> {
     bars.push({ time: row.time, high: row.high, low: row.low, close: row.close });
   }
   return { source: "CryptoCompare BTC-USD", url, interval: "15m", bars };
+}
+
+function formatComparison(loaded: LoadedBars): string {
+  const bars = uniqueBars(loaded.bars);
+  if (bars.length <= FIRST_TRADABLE_INDEX) {
+    throw new Error(`K 线只有 ${bars.length} 根，不够预热，已停止。`);
+  }
+  const fullStart = bars[FIRST_TRADABLE_INDEX].time;
+  const longFull = replayDeskWindow({
+    bars,
+    windowStart: fullStart,
+    capital: DEFAULT_CAPITAL,
+    sides: "long",
+  });
+  const bothFull = replayDeskWindow({
+    bars,
+    windowStart: fullStart,
+    capital: DEFAULT_CAPITAL,
+    sides: "both",
+  });
+
+  const sliceStart = unix(PRIOR_SLICE_START);
+  const sliceInside = bars.some((bar) => bar.time >= sliceStart) && bars[0].time <= sliceStart;
+  const lines = [
+    "Paper BTC desk, long-only vs long-and-short (simulation only, not investment advice)",
+    `source: ${loaded.source}`,
+    `url: ${loaded.url}`,
+    `interval: ${loaded.interval}`,
+    `fetched_bars: ${bars.length}`,
+    `fetched_start_utc: ${iso(bars[0].time)}`,
+    `fetched_end_utc: ${iso(bars[bars.length - 1].time)}`,
+    "fill_rule: exit on this bar, enter on a later bar. A long-to-short flip does not reverse on the same print.",
+    "size: 20% of equity, one position, no leverage, 2% stop, 4% take-profit, 5% daily halt.",
+    "",
+    "full_window_after_warmup:",
+    `window_start_utc: ${iso(longFull.windowStart)}`,
+    `window_end_utc: ${iso(longFull.windowEnd)}`,
+    `bars_replayed: ${longFull.barsReplayed}`,
+    `warmup_bars: ${longFull.warmupBars}`,
+    "",
+    "long_only:",
+    ...indent(formatMode(longFull)),
+    "",
+    "long_and_short:",
+    ...indent(formatMode(bothFull)),
+  ];
+
+  lines.push("", `slice_from_${PRIOR_SLICE_START}:`);
+  if (!sliceInside) {
+    lines.push("status: the requested start is outside this fetch, so the slice was not replayed.");
+  } else {
+    const longSlice = replayDeskWindow({
+      bars,
+      windowStart: sliceStart,
+      capital: DEFAULT_CAPITAL,
+      sides: "long",
+    });
+    const bothSlice = replayDeskWindow({
+      bars,
+      windowStart: sliceStart,
+      capital: DEFAULT_CAPITAL,
+      sides: "both",
+    });
+    lines.push(
+      `window_start_utc: ${iso(longSlice.windowStart)}`,
+      `window_end_utc: ${iso(longSlice.windowEnd)}`,
+      `bars_replayed: ${longSlice.barsReplayed}`,
+      `warmup_bars: ${longSlice.warmupBars}`,
+      "note: previous long-only print was 2026-09-26T09:45:00Z through 2026-09-27T09:41:00Z, 97 bars, start 10000, end 10006.67, +0.07%, 3 entries, 2 exits, ended long. That run used a 5-day Yahoo request and a trailing print around 09:41 UTC that is no longer its own bar.",
+      "",
+      "long_only:",
+      ...indent(formatMode(longSlice)),
+      "",
+      "long_and_short:",
+      ...indent(formatMode(bothSlice)),
+      "",
+      "both_sides_trades:",
+      ...formatTrades(bothSlice),
+    );
+    lines.push(...formatSeedReference(bars, sliceStart));
+  }
+
+  lines.push(
+    "",
+    "This is one short sample of paper trades. It is not investment advice. No exchange was called.",
+  );
+  return lines.join("\n");
+}
+
+function formatSeedReference(bars: DeskReplayBar[], sliceStart: number): string[] {
+  const seed = unix(FIVE_DAY_SEED);
+  const priorEnd = unix(PRIOR_SLICE_END);
+  const seeded = bars.filter((bar) => bar.time >= seed);
+  if (seeded.length <= FIRST_TRADABLE_INDEX || seeded[0].time > sliceStart) return [];
+  const throughLatest = replayDeskWindow({
+    bars: seeded,
+    windowStart: sliceStart,
+    capital: DEFAULT_CAPITAL,
+    sides: "long",
+  });
+  const throughPrior = replayDeskWindow({
+    bars: seeded.filter((bar) => bar.time <= priorEnd),
+    windowStart: sliceStart,
+    capital: DEFAULT_CAPITAL,
+    sides: "long",
+  });
+  return [
+    "",
+    "reference_5d_seed_long_only:",
+    "note: same prices, but the series passed to the indicators starts at 2026-09-23T00:00:00Z, matching the old 5-day request. EMA, RSI, and MACD are seeded from the start of the series, so the 60-day fetch can differ.",
+    "through_latest:",
+    `  window_end_utc: ${iso(throughLatest.windowEnd)}`,
+    `  bars_replayed: ${throughLatest.barsReplayed}`,
+    ...indent(formatMode(throughLatest)),
+    `through_${PRIOR_SLICE_END}:`,
+    `  window_end_utc: ${iso(throughPrior.windowEnd)}`,
+    `  bars_replayed: ${throughPrior.barsReplayed}`,
+    ...indent(formatMode(throughPrior)),
+  ];
+}
+
+function formatMode(report: DeskReplayResult): string[] {
+  const lines = [
+    `starting_equity_usdt: ${money(report.startingEquity)}`,
+    `ending_equity_usdt: ${money(report.endingEquity)}`,
+    `return_usdt: ${signed(report.returnUsdt)}`,
+    `return_pct: ${pct(report.returnPct)}`,
+    `entries: ${report.entries}`,
+    `exits: ${report.exits}`,
+    `long_entries: ${report.longEntries}`,
+    `short_entries: ${report.shortEntries}`,
+    `wins: ${report.wins}`,
+    `losses: ${report.losses}`,
+    `scratches: ${report.scratches}`,
+    `ending_position: ${report.position}`,
+    `max_drawdown_usdt: ${money(report.maxDrawdownUsdt)}`,
+    `max_drawdown_pct: ${(report.maxDrawdownPct * 100).toFixed(2)}%`,
+    `halted: ${report.halted ? "yes" : "no"}`,
+  ];
+  if (report.position !== "flat" && report.openUnrealizedPnl != null) {
+    lines.push(
+      `open_entry_price: ${px(report.openEntryPrice ?? 0)}`,
+      `open_quantity: ${qty(report.openQuantity ?? 0)}`,
+      `open_unrealized_pnl_usdt: ${signed(report.openUnrealizedPnl)}`,
+    );
+  }
+  const realized = report.trades.reduce((sum, trade) => sum + (trade.pnl ?? 0), 0);
+  lines.push(`realized_pnl_usdt: ${signed(realized)}`);
+  return lines;
+}
+
+function formatTrades(report: DeskReplayResult): string[] {
+  if (!report.trades.length) return ["trades: none"];
+  const lines = ["trades:"];
+  report.trades.forEach((trade, index) => {
+    const pnl = trade.pnl == null ? "realized_pnl: n/a" : `realized_pnl_usdt: ${signed(trade.pnl)}`;
+    lines.push(
+      `${index + 1}. ${iso(trade.time)} side ${trade.positionSide} ${trade.effect} price ${px(trade.price)} qty ${qty(trade.quantity)} ${pnl}`,
+    );
+    lines.push(`   reason: ${trade.reason}`);
+  });
+  return lines;
+}
+
+function uniqueBars(bars: DeskReplayBar[]): DeskReplayBar[] {
+  const sorted = [...bars].sort((a, b) => a.time - b.time);
+  const out: DeskReplayBar[] = [];
+  for (const bar of sorted) {
+    const prev = out[out.length - 1];
+    if (prev && prev.time === bar.time) out[out.length - 1] = bar;
+    else out.push(bar);
+  }
+  return out;
+}
+
+function indent(lines: string[]): string[] {
+  return lines.map((line) => `  ${line}`);
+}
+
+function unix(isoStamp: string): number {
+  return Math.floor(Date.parse(isoStamp) / 1000);
 }
 
 function formatReport(loaded: LoadedBars, report: DeskReplayResult): string {

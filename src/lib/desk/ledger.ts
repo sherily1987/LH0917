@@ -16,7 +16,9 @@ export function roundQty(value: number): number {
 }
 
 export function markEquity(ledger: Pick<DeskLedger, "cash" | "position">, price: number): number {
-  const marked = ledger.position ? ledger.position.quantity * price : 0;
+  if (!ledger.position) return roundCash(ledger.cash);
+  const marked = ledger.position.quantity * price;
+  if (ledger.position.side === "short") return roundCash(ledger.cash - marked);
   return roundCash(ledger.cash + marked);
 }
 
