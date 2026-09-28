@@ -1,3 +1,4 @@
+import { adversePrice, feeOnNotional } from "@/lib/desk/costs";
 import { PaperAdapter } from "@/lib/desk/execution";
 import {
   applyLivePrice,
@@ -47,6 +48,12 @@ export function canEnterShort(reading: Pick<RegimeReading, "regime" | "bollinger
   return reading.regime === "down" && reading.bollingerPercentB != null && reading.bollingerPercentB > 0;
 }
 
+/** Two-bar mode requires the previous closed bar to show the same regime. Stops do not use this. */
+export function regimeHeld(regime: DeskRegime, previous: DeskRegime | null, confirmBars: number): boolean {
+  if (confirmBars <= 1) return true;
+  return previous === regime;
+}
+
 export function stepDesk(input: DeskStepInput): DeskStepResult {
   const command: DeskCommand = input.command ?? "step";
   if (!COMMANDS.has(command)) throw new DeskError("不支持的指令。");
@@ -55,10 +62,15 @@ export function stepDesk(input: DeskStepInput): DeskStepResult {
   const capital = normalizeCapital(input.capital ?? input.ledger?.startingCapital ?? DEFAULT_CAPITAL);
   const agentRunning = input.agentRunning !== false;
   const sides: DeskSides = input.sides === "both" ? "both" : "long";
+  const confirmBars: 1 | 2 = input.confirmBars === 2 ? 2 : 1;
+  const costs = input.costs ?? null;
   let ledger = input.ledger ?? createLedger(capital, market.time);
 
   const sideKey = sides === "both" ? ":both" : "";
-  const key = command === "reset" ? `reset:${market.time}:${capital}` : `${command}:${market.time}${sideKey}`;
+  const confirmKey = confirmBars === 2 ? ":c2" : "";
+  const costKey = costs ? ":cost" : "";
+  const key =
+    command === "reset" ? `reset:${market.time}:${capital}` : `${command}:${market.time}${sideKey}${confirmKey}${costKey}`;
   if (ledger.appliedKey === key && ledger.lastDecision) {
     return { ledger, decision: ledger.lastDecision, execution: "paper", risk };
   }
@@ -80,7 +92,9 @@ export function stepDesk(input: DeskStepInput): DeskStepResult {
     return { ledger: next, decision: resetDecision, execution: "paper", risk };
   }
 
-  const reading = readRegime(applyLivePrice(market.candles, market.price, market.time));
+  const adjusted = applyLivePrice(market.candles, market.price, market.time);
+  const reading = readRegime(adjusted);
+  const previous = confirmBars === 2 && adjusted.length > 1 ? readRegime(adjusted.slice(0, -1)).regime : null;
   ledger = rollDay(ledger, market);
 
   if (command === "flatten") {
@@ -92,16 +106,16 @@ export function stepDesk(input: DeskStepInput): DeskStepResult {
       ledger.position.side === "short"
         ? "手动平仓，按最新公开价结束模拟空单。"
         : "手动平仓，按最新公开价结束模拟多单。";
-    ledger = closePosition(ledger, market.price, market.time, flatReason);
+    ledger = closePosition(ledger, market.price, market.time, flatReason, costs);
     ledger = latchHalt(ledger, market.price, risk);
     return finish(ledger, market, risk, reading, key, "flatten", flatReason);
   }
 
-  const exitReason = exitIfNeeded(ledger, market, risk, reading.regime, agentRunning);
+  const exitReason = exitIfNeeded(ledger, market, risk, reading.regime, previous, confirmBars, agentRunning);
   if (exitReason && ledger.position) {
     // Close on this bar and stop. A flip cannot open the other side until a later bar,
     // so one print is never both an exit and an entry.
-    ledger = closePosition(ledger, market.price, market.time, exitReason);
+    ledger = closePosition(ledger, market.price, market.time, exitReason, costs);
     ledger = latchHalt(ledger, market.price, risk);
     return finish(ledger, market, risk, reading, key, "exit", exitReason);
   }
@@ -139,14 +153,18 @@ export function stepDesk(input: DeskStepInput): DeskStepResult {
     );
   }
 
-  const block = entryBlock(reading, agentRunning, input.veto, sides);
+  const block = entryBlock(reading, previous, confirmBars, agentRunning, input.veto, sides);
   if (block) return finish(ledger, market, risk, reading, key, "wait", block);
 
   const openingShort = sides === "both" && canEnterShort(reading);
   const equity = markEquity(ledger, market.price);
-  const notional = Math.min(ledger.cash, equity * risk.positionPct);
-  const quantity = roundQty(notional / market.price);
-  if (!(quantity > 0) || quantity * market.price > ledger.cash + 1e-6) {
+  const openSide = openingShort ? "sell" : "buy";
+  const fillPrice = adversePrice(market.price, openSide, costs?.slippagePct ?? 0);
+  const feePct = costs?.feePct ?? 0;
+  const budget = Math.min(ledger.cash, equity * risk.positionPct);
+  const quantity = roundQty(openingShort ? (equity * risk.positionPct) / fillPrice : budget / (fillPrice * (1 + feePct)));
+  const openFee = feeOnNotional(fillPrice, quantity, feePct);
+  if (!(quantity > 0) || (!openingShort && fillPrice * quantity + openFee > ledger.cash + 1e-6)) {
     return finish(
       ledger,
       market,
@@ -163,7 +181,7 @@ export function stepDesk(input: DeskStepInput): DeskStepResult {
       symbol: DESK_SYMBOL,
       side: "sell",
       quantity,
-      price: market.price,
+      price: fillPrice,
     });
     const reason = `趋势向下且未过度下跌，按净值的 ${pct(risk.positionPct)} 开空。这是模拟成交，不是投资建议。`;
     const sale: DeskTrade = {
@@ -178,12 +196,13 @@ export function stepDesk(input: DeskStepInput): DeskStepResult {
     };
     ledger = {
       ...ledger,
-      cash: roundCash(ledger.cash + fill.price * fill.quantity),
+      cash: roundCash(ledger.cash + fill.price * fill.quantity - openFee),
       position: {
         side: "short",
         quantity: fill.quantity,
         entryPrice: fill.price,
         openedAt: market.time,
+        entryFee: roundCash(openFee),
       },
       trades: [...ledger.trades, sale].slice(-80),
     };
@@ -193,9 +212,9 @@ export function stepDesk(input: DeskStepInput): DeskStepResult {
   const fill = paper.submit({
     symbol: DESK_SYMBOL,
     side: "buy",
-    quantity,
-    price: market.price,
-  });
+      quantity,
+      price: fillPrice,
+    });
   const reason = `趋势向上且未过度延伸，按净值的 ${pct(risk.positionPct)} 开多。这是模拟成交，不是投资建议。`;
   const buy: DeskTrade = {
     id: `buy-${market.time}`,
@@ -209,12 +228,13 @@ export function stepDesk(input: DeskStepInput): DeskStepResult {
   };
   ledger = {
     ...ledger,
-    cash: roundCash(ledger.cash - fill.price * fill.quantity),
+    cash: roundCash(ledger.cash - fill.price * fill.quantity - openFee),
     position: {
       side: "long",
       quantity: fill.quantity,
       entryPrice: fill.price,
       openedAt: market.time,
+      entryFee: roundCash(openFee),
     },
     trades: [...ledger.trades, buy].slice(-80),
   };
@@ -260,6 +280,8 @@ function exitIfNeeded(
   market: DeskMarket,
   risk: DeskRisk,
   regime: DeskRegime,
+  previous: DeskRegime | null,
+  confirmBars: number,
   agentRunning: boolean,
 ): string | null {
   if (!ledger.position) return null;
@@ -271,7 +293,9 @@ function exitIfNeeded(
     if (market.price <= entry * (1 - risk.takeProfitPct)) {
       return `触发止盈：现价较入场价下跌达到 ${pct(risk.takeProfitPct)}，平空。`;
     }
-    if (agentRunning && regime === "up") return "趋势投票转为向上，平空。";
+    if (agentRunning && regime === "up" && regimeHeld(regime, previous, confirmBars)) {
+      return confirmBars > 1 ? "趋势连续两根向上，平空。" : "趋势投票转为向上，平空。";
+    }
     return null;
   }
   if (market.price <= entry * (1 - risk.stopPct)) {
@@ -280,21 +304,33 @@ function exitIfNeeded(
   if (market.price >= entry * (1 + risk.takeProfitPct)) {
     return `触发止盈：现价较入场价上涨达到 ${pct(risk.takeProfitPct)}，平多。`;
   }
-  if (agentRunning && regime === "down") return "趋势投票转为向下，平多。";
+  if (agentRunning && regime === "down" && regimeHeld(regime, previous, confirmBars)) {
+    return confirmBars > 1 ? "趋势连续两根向下，平多。" : "趋势投票转为向下，平多。";
+  }
   return null;
 }
 
-function closePosition(ledger: DeskLedger, price: number, time: number, reason: string): DeskLedger {
+function closePosition(
+  ledger: DeskLedger,
+  price: number,
+  time: number,
+  reason: string,
+  costs: DeskStepInput["costs"],
+): DeskLedger {
   if (!ledger.position) return ledger;
   const position = ledger.position;
+  const feePct = costs?.feePct ?? 0;
+  const slippagePct = costs?.slippagePct ?? 0;
   if (position.side === "short") {
+    const coverPrice = adversePrice(price, "buy", slippagePct);
     const fill = paper.submit({
       symbol: DESK_SYMBOL,
       side: "buy",
       quantity: position.quantity,
-      price,
+      price: coverPrice,
     });
-    const pnl = roundCash((position.entryPrice - fill.price) * fill.quantity);
+    const exitFee = feeOnNotional(fill.price, fill.quantity, feePct);
+    const pnl = roundCash((position.entryPrice - fill.price) * fill.quantity - (position.entryFee ?? 0) - exitFee);
     const cover: DeskTrade = {
       id: `buy-${time}`,
       time,
@@ -307,18 +343,20 @@ function closePosition(ledger: DeskLedger, price: number, time: number, reason: 
     };
     return {
       ...ledger,
-      cash: roundCash(ledger.cash - fill.price * fill.quantity),
+      cash: roundCash(ledger.cash - fill.price * fill.quantity - exitFee),
       position: null,
       trades: [...ledger.trades, cover].slice(-80),
     };
   }
+  const sellPrice = adversePrice(price, "sell", slippagePct);
   const fill = paper.submit({
     symbol: DESK_SYMBOL,
     side: "sell",
     quantity: position.quantity,
-    price,
+    price: sellPrice,
   });
-  const pnl = roundCash((fill.price - position.entryPrice) * fill.quantity);
+  const exitFee = feeOnNotional(fill.price, fill.quantity, feePct);
+  const pnl = roundCash((fill.price - position.entryPrice) * fill.quantity - (position.entryFee ?? 0) - exitFee);
   const sell: DeskTrade = {
     id: `sell-${time}`,
     time,
@@ -331,7 +369,7 @@ function closePosition(ledger: DeskLedger, price: number, time: number, reason: 
   };
   return {
     ...ledger,
-    cash: roundCash(ledger.cash + fill.price * fill.quantity),
+    cash: roundCash(ledger.cash + fill.price * fill.quantity - exitFee),
     position: null,
     trades: [...ledger.trades, sell].slice(-80),
   };
@@ -351,6 +389,8 @@ function latchHalt(ledger: DeskLedger, price: number, risk: DeskRisk): DeskLedge
 
 function entryBlock(
   reading: RegimeReading,
+  previous: DeskRegime | null,
+  confirmBars: number,
   agentRunning: boolean,
   veto: DeskStepInput["veto"],
   sides: DeskSides,
@@ -365,12 +405,18 @@ function entryBlock(
       const band = reading.bollingerPercentB;
       return `趋势向下，但布林 %B${band == null ? " 不足" : ` 为 ${band.toFixed(2)}`}，价格过度下跌，不开空。`;
     }
+    if (!regimeHeld(reading.regime, previous, confirmBars)) {
+      return "趋势刚转向下，还差一根 15 分钟确认，不开空。";
+    }
     return null;
   }
   if (reading.regime !== "up") return reading.summary;
   if (reading.stretched) {
     const band = reading.bollingerPercentB;
     return `趋势向上，但布林 %B${band == null ? "" : ` 为 ${band.toFixed(2)}`}，价格过度延伸，不开新仓。`;
+  }
+  if (!regimeHeld(reading.regime, previous, confirmBars)) {
+    return "趋势刚转向上，还差一根 15 分钟确认，不开多。";
   }
   return null;
 }

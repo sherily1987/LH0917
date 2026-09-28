@@ -38,6 +38,8 @@ export type DeskPosition = {
   quantity: number;
   entryPrice: number;
   openedAt: number;
+  /** Fee paid to open, in USDT. Omitted on older paper ledgers. */
+  entryFee?: number;
 };
 
 export type DeskTrade = {
@@ -120,11 +122,15 @@ export type DeskStepInput = {
   agentRunning?: boolean;
   veto?: DeskVeto | null;
   sides?: DeskSides;
+  /** 1 keeps the current rule. 2 requires the regime to hold for two bars before entry or a regime exit. */
+  confirmBars?: 1 | 2;
+  /** When set, fills use adverse slippage and a taker fee. The paper desk omits this. */
+  costs?: { feePct: number; slippagePct: number } | null;
 };
 
 export type DeskStepResult = {
   ledger: DeskLedger;
   decision: DeskDecision;
-  execution: "paper";
+  execution: "paper" | "okx-demo" | "okx-live";
   risk: DeskRisk;
 };

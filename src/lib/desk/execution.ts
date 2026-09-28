@@ -1,4 +1,5 @@
 import { DESK_SYMBOL } from "@/lib/desk/types";
+import { deskExecutionMode, okxRefusal, placeOkxOrder, readOkxEnv, type OkxEnv, type OkxHttp, type OkxOrder } from "@/lib/desk/okx";
 
 export type OrderRequest = {
   symbol: typeof DESK_SYMBOL;
@@ -9,11 +10,7 @@ export type OrderRequest = {
 
 export type Fill = OrderRequest & { mode: "paper" };
 
-export type ExecutionEnv = {
-  EXCHANGE_API_KEY?: string;
-  EXCHANGE_API_SECRET?: string;
-  DESK_LIVE_ARM?: string;
-};
+export type ExecutionEnv = OkxEnv;
 
 export interface ExecutionAdapter {
   readonly mode: "paper" | "live";
@@ -34,46 +31,45 @@ export class PaperAdapter implements ExecutionAdapter {
   }
 }
 
-export function liveTradingRefusal(env: ExecutionEnv): string | null {
-  const key = env.EXCHANGE_API_KEY?.trim();
-  const secret = env.EXCHANGE_API_SECRET?.trim();
-  const armed = env.DESK_LIVE_ARM === "1";
-  if (!key || !secret) {
-    return "实盘未启用：未配置交易所密钥。当前只做模拟交易，不会发送真实订单，也没有提币。";
-  }
-  if (!armed) {
-    return "实盘未启用：DESK_LIVE_ARM 未打开。当前只做模拟交易，不会发送真实订单，也没有提币。";
-  }
-  return null;
+export function liveTradingRefusal(env: ExecutionEnv, liveEligible = false): string | null {
+  return okxRefusal(env, liveEligible);
 }
 
 /**
- * Live orders stay off. Missing keys or ARM refuse immediately.
- * Even when both are present this build does not call an exchange.
+ * Refuses unless OKX keys, the arm flag, the simulated flag, and the backtest gate all pass.
+ * `submit` never performs network I/O. `place` sends the swap order.
  */
 export class LiveAdapter implements ExecutionAdapter {
   readonly mode = "live" as const;
   private readonly env: ExecutionEnv;
+  private readonly liveEligible: boolean;
+  private readonly http: OkxHttp | undefined;
 
-  constructor(env?: ExecutionEnv) {
-    this.env = env ?? {
-      EXCHANGE_API_KEY: process.env.EXCHANGE_API_KEY,
-      EXCHANGE_API_SECRET: process.env.EXCHANGE_API_SECRET,
-      DESK_LIVE_ARM: process.env.DESK_LIVE_ARM,
-    };
+  constructor(env?: ExecutionEnv, liveEligible = false, http?: OkxHttp) {
+    this.env = env ?? readOkxEnv(process.env);
+    this.liveEligible = liveEligible;
+    this.http = http;
   }
 
   submit(order: OrderRequest): Fill {
     if (order.symbol !== DESK_SYMBOL) {
-      throw new Error("实盘适配器只接受 BTCUSDT，且本版本不会发送订单。");
+      throw new Error("实盘适配器只接受 BTCUSDT，且本版本不会在同步路径发送订单。");
     }
-    const refused = liveTradingRefusal(this.env);
+    const refused = okxRefusal(this.env, this.liveEligible);
     if (refused) throw new Error(refused);
-    throw new Error("已检测到密钥和 ARM，但本版本仍禁止向交易所发送订单。没有提币功能。");
+    throw new Error("同步路径不发送订单。请使用 place。没有提币功能。");
+  }
+
+  async place(order: OkxOrder): Promise<void> {
+    await placeOkxOrder(order, this.env, this.liveEligible, this.http);
+  }
+
+  executionLabel(): "paper" | "okx-demo" | "okx-live" {
+    return deskExecutionMode(this.env);
   }
 }
 
 export function createExecutionAdapter(mode: "paper" | "live" = "paper", env?: ExecutionEnv): ExecutionAdapter {
-  if (mode === "live") return new LiveAdapter(env);
+  if (mode === "live") return new LiveAdapter(env, false);
   return new PaperAdapter();
 }

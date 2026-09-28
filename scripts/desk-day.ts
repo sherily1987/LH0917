@@ -1,3 +1,4 @@
+import { evaluateLiveGate } from "@/lib/desk/gate";
 import { replayDeskWindow, type DeskReplayBar, type DeskReplayResult } from "@/lib/desk/replay";
 import { DEFAULT_CAPITAL, type DeskDecision } from "@/lib/desk/types";
 
@@ -265,11 +266,29 @@ function formatComparison(loaded: LoadedBars): string {
     lines.push(...formatSeedReference(bars, sliceStart));
   }
 
+  lines.push("", ...formatGate(bars));
   lines.push(
     "",
     "This is one short sample of paper trades. It is not investment advice. No exchange was called.",
   );
   return lines.join("\n");
+}
+
+function formatGate(bars: DeskReplayBar[]): string[] {
+  const gate = evaluateLiveGate(bars);
+  return [
+    "live_gate:",
+    `confirm_bars: ${gate.confirmBars}`,
+    `live_eligible: ${gate.liveEligible ? "yes" : "no"}`,
+    `selection_immediate_return_pct: ${gate.selectionImmediatePct == null ? "n/a" : pct(gate.selectionImmediatePct)}`,
+    `selection_confirm2_return_pct: ${gate.selectionConfirmPct == null ? "n/a" : pct(gate.selectionConfirmPct)}`,
+    `holdout_return_pct: ${gate.holdoutReturnPct == null ? "n/a" : pct(gate.holdoutReturnPct)}`,
+    `hold20_return_pct: ${gate.hold20ReturnPct == null ? "n/a" : pct(gate.hold20ReturnPct)}`,
+    `hold100_return_pct: ${gate.hold100ReturnPct == null ? "n/a" : pct(gate.hold100ReturnPct)}`,
+    `holdout_max_drawdown_pct: ${gate.maxDrawdownPct == null ? "n/a" : `${(gate.maxDrawdownPct * 100).toFixed(2)}%`}`,
+    `summary: ${gate.summary}`,
+    "costs: OKX taker 0.05% per fill plus 0.02% slippage. Holdout is the last 14 days and was not used to pick the rule.",
+  ];
 }
 
 function formatSeedReference(bars: DeskReplayBar[], sliceStart: number): string[] {

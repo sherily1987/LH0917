@@ -107,12 +107,13 @@ export function normalizeLedger(value: unknown, time: number, capital: number): 
   if (raw.position != null) {
     if (!raw.position || typeof raw.position !== "object") throw new DeskError("持仓格式不正确。");
     const pos = raw.position as Record<string, unknown>;
-    if (pos.side !== "long") throw new DeskError("只接受多头或空仓。");
+    if (pos.side !== "long" && pos.side !== "short") throw new DeskError("只接受多头、空头或空仓。");
     const quantity = numberField(pos.quantity, "持仓数量");
     const entryPrice = numberField(pos.entryPrice, "入场价");
     const openedAt = numberField(pos.openedAt, "开仓时间");
     if (quantity <= 0 || entryPrice <= 0) throw new DeskError("持仓数量和入场价必须大于 0。");
-    position = { side: "long", quantity, entryPrice, openedAt };
+    const entryFee = pos.entryFee == null ? 0 : numberField(pos.entryFee, "开仓费用");
+    position = { side: pos.side, quantity, entryPrice, openedAt, entryFee };
   }
 
   return {
