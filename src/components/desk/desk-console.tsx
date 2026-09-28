@@ -23,6 +23,17 @@ import { formatDateTime, formatNumber, signedClass } from "@/lib/format";
 const STORAGE_KEY = "lh-quant-desk-v1";
 const POLL_MS = 15_000;
 
+type DeskStatusView = {
+  mode: "paper" | "okx-demo" | "okx-live";
+  liveEligible: boolean;
+  confirmBars: 1 | 2;
+  summary: string;
+  holdoutReturnPct: number | null;
+  hold20ReturnPct: number | null;
+  hold100ReturnPct: number | null;
+  maxDrawdownPct: number | null;
+};
+
 type RiskForm = {
   positionPct: number;
   stopPct: number;
@@ -72,6 +83,7 @@ export function DeskConsole() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [quote, setQuote] = useState<QuoteView | null>(null);
+  const [status, setStatus] = useState<DeskStatusView | null>(null);
 
   const ledgerRef = useRef(ledger);
   const formRef = useRef(form);
@@ -107,6 +119,14 @@ export function DeskConsole() {
       localStorage.removeItem(STORAGE_KEY);
     }
     setReady(true);
+    void fetch("/api/desk/status", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((payload: DeskStatusView) => {
+        if (payload && (payload.mode === "paper" || payload.mode === "okx-demo" || payload.mode === "okx-live")) {
+          setStatus(payload);
+        }
+      })
+      .catch(() => setStatus(null));
   }, []);
 
   useEffect(() => {
@@ -157,8 +177,16 @@ export function DeskConsole() {
 
   const price = quote?.price ?? ledger?.lastDecision?.price ?? null;
   const position = ledger?.position ?? null;
-  const equity = ledger ? ledger.cash + (position && price ? position.quantity * price : 0) : capital;
-  const upnl = position && price ? (price - position.entryPrice) * position.quantity : 0;
+  const equity = ledger
+    ? ledger.cash +
+      (position && price ? (position.side === "short" ? -position.quantity * price : position.quantity * price) : 0)
+    : capital;
+  const upnl =
+    position && price
+      ? (position.side === "short" ? position.entryPrice - price : price - position.entryPrice) * position.quantity
+      : 0;
+  const modeLabel =
+    status?.mode === "okx-live" ? "OKX 实盘" : status?.mode === "okx-demo" ? "OKX 模拟盘" : "模拟 · 非实盘";
   const decision = ledger?.lastDecision ?? null;
 
   function patchForm(key: keyof RiskForm, value: string) {
@@ -170,14 +198,14 @@ export function DeskConsole() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="text-xs tracking-[0.2em] text-muted-foreground">PAPER DESK</p>
-          <h1 className="text-2xl font-medium">AI 模拟交易台</h1>
+          <p className="text-xs tracking-[0.2em] text-muted-foreground">BTC DESK</p>
+          <h1 className="text-2xl font-medium">AI 交易台</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            只做 BTC 现货风格的多单，不做空，也不加杠杆。规则引擎看公开行情，在你这台浏览器的模拟账本里下单。
+            默认只在这台浏览器里模拟做多。接到 OKX 时做 BTCUSDT 永续，1 倍杠杆，多空都可以，仓位仍是净值的 20%。
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline">模拟 · 非实盘</Badge>
+          <Badge variant="outline">{modeLabel}</Badge>
           <Badge variant={running ? "default" : "secondary"}>{running ? "代理运行中" : "代理已停止"}</Badge>
           {ledger?.halted ? <Badge variant="destructive">当日停机</Badge> : null}
         </div>
@@ -186,7 +214,13 @@ export function DeskConsole() {
       <Alert>
         <AlertTitle>研究工具，不是投资建议</AlertTitle>
         <AlertDescription>
-          这里的盈亏都是模拟的。亏损很常见，过去的纸面结果不能说明以后会赚钱。默认不会向任何交易所发送订单，也没有提币。
+          亏损很常见，过去的回测不能说明以后会赚钱。页面不展示胜率。没有提币。
+          {status
+            ? ` ${status.summary} 规则是${status.confirmBars === 2 ? "连续两根 15 分钟同向才开仓或按趋势平仓" : "第一根反向就按趋势平仓"}。`
+            : " 正在读取实盘门槛。"}
+          {status?.holdoutReturnPct != null && status.hold20ReturnPct != null && status.hold100ReturnPct != null
+            ? ` 最近 14 天：策略 ${(status.holdoutReturnPct * 100).toFixed(2)}%，两成仓持有 ${(status.hold20ReturnPct * 100).toFixed(2)}%，满仓持有 ${(status.hold100ReturnPct * 100).toFixed(2)}%。`
+            : ""}
         </AlertDescription>
       </Alert>
 
@@ -260,12 +294,12 @@ export function DeskConsole() {
         <Card>
           <CardHeader>
             <CardTitle>持仓</CardTitle>
-            <CardDescription>最多一笔多单，无杠杆。</CardDescription>
+            <CardDescription>最多一笔，无杠杆。模拟盘只做多；OKX 打开后可以做空。</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
             {position ? (
               <>
-                <Row label="方向" value="多" />
+                <Row label="方向" value={position.side === "short" ? "空" : "多"} />
                 <Row label="数量" value={`${formatNumber(position.quantity, 6)} BTC`} />
                 <Row label="入场价" value={usdt(position.entryPrice)} />
                 <Row label="浮动盈亏" value={usdt(upnl)} className={signedClass(upnl)} />

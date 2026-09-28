@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createLedger, markEquity, roundCash } from "@/lib/desk/ledger";
 import { readRegime } from "@/lib/desk/regime";
 import { clampRisk } from "@/lib/desk/risk";
+import { OKX_COSTS } from "@/lib/desk/costs";
 import { canEnterShort, parseStepBody, stepDesk } from "@/lib/desk/step";
 import { DEFAULT_RISK, type DeskCandle, type DeskLedger, type DeskMarket } from "@/lib/desk/types";
 
@@ -348,6 +349,77 @@ describe("desk step", () => {
     const result = stepDesk(parsed);
     expect(result.ledger.position).toBeNull();
     expect(result.decision.action).not.toBe("enter");
+  });
+
+  it("does not open until the regime holds for two bars", () => {
+    const candles = easeInsideBand(pathCandles(1)).slice(-40);
+    const reading = readRegime(candles);
+    expect(reading.regime).toBe("up");
+    expect(readRegime(candles.slice(0, -1)).regime).not.toBe("up");
+    const market = marketFrom(candles);
+    const result = stepDesk({
+      ledger: createLedger(10_000, market.time),
+      market,
+      confirmBars: 2,
+    });
+    expect(result.ledger.position).toBeNull();
+    expect(result.decision.reason).toContain("确认");
+  });
+
+  it("does not exit a long on a single down bar when confirmation is required", () => {
+    const candles = easeInsideBand(pathCandles(1));
+    const next = candles.map((item) => ({ ...item }));
+    const last = next[next.length - 1];
+    let flipped = false;
+    for (let i = 0; i < 40 && !flipped; i++) {
+      last.close *= 0.97;
+      last.low = Math.min(last.low, last.close);
+      last.high = Math.max(last.high, last.close);
+      flipped = readRegime(next).regime === "down" && readRegime(next.slice(0, -1)).regime !== "down";
+    }
+    expect(flipped).toBe(true);
+    const market = marketFrom(next);
+    const held = stepDesk({
+      ledger: longLedger(market.price * 1.01, market.time),
+      market,
+      confirmBars: 2,
+    });
+    expect(held.decision.action).not.toBe("exit");
+    expect(held.ledger.position?.side).toBe("long");
+  });
+
+  it("still stops out on the same bar when confirmation is required", () => {
+    const candles = pathCandles(1);
+    const time = candles.at(-1)!.time;
+    const result = stepDesk({
+      ledger: longLedger(100, time),
+      market: marketFrom(candles, 97),
+      confirmBars: 2,
+    });
+    expect(result.decision.action).toBe("exit");
+    expect(result.decision.reason).toContain("止损");
+  });
+
+  it("reduces cash by the taker fee and adverse slippage", () => {
+    const candles = easeInsideBand(pathCandles(1));
+    const market = marketFrom(candles);
+    const opened = stepDesk({
+      ledger: createLedger(10_000, market.time),
+      market,
+      costs: OKX_COSTS,
+    });
+    const position = opened.ledger.position;
+    expect(position?.side).toBe("long");
+    expect(position!.entryPrice).toBeGreaterThan(market.price);
+    const closed = stepDesk({
+      ledger: opened.ledger,
+      market: { ...market, time: market.time + 60 },
+      command: "flatten",
+      costs: OKX_COSTS,
+    });
+    expect(closed.ledger.position).toBeNull();
+    expect(closed.ledger.cash).toBeLessThan(10_000);
+    expect(closed.ledger.trades.at(-1)?.pnl ?? 0).toBeLessThan(0);
   });
 
   it("does not send a live order from the decision module", () => {

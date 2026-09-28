@@ -77,6 +77,8 @@ export function replayDeskWindow(input: {
   capital?: number;
   risk?: Partial<DeskRisk>;
   sides?: DeskSides;
+  confirmBars?: 1 | 2;
+  costs?: { feePct: number; slippagePct: number } | null;
 }): DeskReplayResult {
   if (!Number.isFinite(input.windowStart) || input.windowStart <= 0) {
     throw new ReplayError("回放窗口起点无效。");
@@ -111,6 +113,8 @@ export function replayDeskWindow(input: {
       capital: startingEquity,
       agentRunning: true,
       sides,
+      confirmBars: input.confirmBars === 2 ? 2 : 1,
+      costs: input.costs ?? null,
     });
     ledger = result.ledger;
     equities.push(markEquity(ledger, bar.close));
