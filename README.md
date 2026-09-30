@@ -43,6 +43,8 @@ npm run build
 
 密钥只在服务端使用。客户端表单以 GET 提交到 `/research?q=`。解析后页面会画出 Choice 概率条和 Noul 点名程度，再点「前往」进入对应页。官方对照界面是 [TypeSafe Playground](https://console.typesafe.ai/playground)。
 
+侧栏「涨跌」会同时看日线、小时线和 15 分钟线。每一档都用该周期的 K 线算出收益和趋势投票，再由 Jev 判断下一根偏向涨、跌还是看不清。置信度不够、事实打架，或价格已经顺着最近走势延伸时，这一档显示观望。这不是价格预测，也不会下单。
+
 ## AI 模拟交易台
 
 打开 [http://localhost:3000/desk](http://localhost:3000/desk)。

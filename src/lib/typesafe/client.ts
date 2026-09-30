@@ -5,6 +5,9 @@ import {
   TypeSafeClient,
   TypeSafeError,
 } from "@typesafe-ai/sdk";
+import { asDirectionLean, type DirectionAnswers } from "@/lib/jev/decide";
+import { buildDirectionQuestions } from "@/lib/jev/questions";
+import type { DirectionTape } from "@/lib/jev/tape";
 import { buildResearchQuestions, buildResearchState } from "@/lib/typesafe/questions";
 
 export function getTypeSafeClient(): TypeSafeClient {
@@ -20,6 +23,24 @@ export async function classifyResearchRequest(query: string) {
     questions: buildResearchQuestions(),
   });
   return answers;
+}
+
+export async function judgeDirection(tape: DirectionTape): Promise<DirectionAnswers> {
+  const client = getTypeSafeClient();
+  const { answers } = await client.systemOne({
+    state: { tape },
+    questions: buildDirectionQuestions(),
+  });
+  return {
+    lean: {
+      choice: asDirectionLean(answers.lean.choice),
+      confidence: answers.lean.confidence,
+      probabilities: answers.lean.probabilities,
+    },
+    factsAgree: { noul: answers.factsAgree.noul },
+    conflict: { noul: answers.conflict.noul },
+    stretched: { noul: answers.stretched.noul },
+  };
 }
 
 export function describeTypeSafeError(error: unknown): string {
