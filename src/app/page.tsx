@@ -49,6 +49,9 @@ export default async function DashboardPage() {
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="outline">{source === "yahoo" ? "Yahoo 实时" : "演示数据"}</Badge>
           <Button variant="outline" asChild>
+            <Link href="/jev">Jev 涨跌</Link>
+          </Button>
+          <Button variant="outline" asChild>
             <Link href="/desk">模拟交易台</Link>
           </Button>
           <Button asChild>
