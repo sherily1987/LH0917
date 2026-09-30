@@ -1,19 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { decideDirection, type DirectionAnswers } from "@/lib/jev/decide";
 import { buildDirectionQuestions } from "@/lib/jev/questions";
-import { buildDirectionTape, type DirectionTape } from "@/lib/jev/tape";
+import { DIRECTION_INTERVALS, INTERVAL_SPEC, buildDirectionTape, type DirectionTape } from "@/lib/jev/tape";
 import type { Candle } from "@/lib/quant/types";
 
-function tape(change5dPct: number | null): DirectionTape {
+function tape(change5BarPct: number | null): DirectionTape {
   return {
     symbol: "BTC-USD",
     name: "比特币",
     source: "yahoo",
-    horizon: { id: "session", label: "下一根日线", meaning: "next session" },
+    interval: { id: "1d", label: "日线" },
+    horizon: { meaning: "the next daily bar" },
     lastClose: 100,
-    change1dPct: change5dPct,
-    change5dPct,
-    change20dPct: change5dPct,
+    change1BarPct: change5BarPct,
+    change5BarPct,
+    change20BarPct: change5BarPct,
+    returnLabels: { one: "1 日", five: "5 日", twenty: "20 日" },
     regime: "up",
     upVotes: 5,
     downVotes: 1,
@@ -96,11 +98,17 @@ describe("buildDirectionTape", () => {
       name: "比特币",
       candles,
       source: "yahoo",
-      horizon: "week",
+      interval: "15m",
     });
-    expect(built.horizon.id).toBe("week");
-    expect(built.change1dPct).toBeCloseTo(1 / 128, 4);
+    expect(built.interval.label).toBe("15 分钟线");
+    expect(built.change1BarPct).toBeCloseTo(1 / 128, 4);
+    expect(built.returnLabels.one).toBe("15 分钟");
     expect(built.regime).toBe("unknown");
     expect(built.votes).toHaveLength(0);
+    expect(DIRECTION_INTERVALS.map((id) => INTERVAL_SPEC[id].meaning)).toEqual([
+      "the next daily bar after the last bar in `tape`",
+      "the next one-hour bar after the last bar in `tape`",
+      "the next 15-minute bar after the last bar in `tape`",
+    ]);
   });
 });

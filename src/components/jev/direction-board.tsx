@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { formatPercent } from "@/lib/format";
 import type { DirectionDecision, DirectionAnswers } from "@/lib/jev/decide";
-import { DIRECTION_HORIZONS, HORIZON_LABEL, type DirectionHorizon, type DirectionTape } from "@/lib/jev/tape";
+import type { DirectionTape } from "@/lib/jev/tape";
 import { UNIVERSE } from "@/lib/market/universe";
 import { cn } from "@/lib/utils";
 
@@ -38,15 +38,9 @@ function Bar({ label, value, active = false }: { label: string; value: number; a
   );
 }
 
-export function DirectionForm({
-  symbol,
-  horizon,
-}: {
-  symbol: string;
-  horizon: DirectionHorizon;
-}) {
+export function DirectionForm({ symbol }: { symbol: string }) {
   return (
-    <form action="/jev" method="get" className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
+    <form action="/jev" method="get" className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
       <input type="hidden" name="run" value="1" />
       <div className="space-y-1.5">
         <Label htmlFor="symbol">标的</Label>
@@ -58,17 +52,7 @@ export function DirectionForm({
           ))}
         </NativeSelect>
       </div>
-      <div className="space-y-1.5">
-        <Label htmlFor="horizon">看多远</Label>
-        <NativeSelect id="horizon" name="horizon" defaultValue={horizon} aria-label="看多远">
-          {DIRECTION_HORIZONS.map((id) => (
-            <option key={id} value={id}>
-              {HORIZON_LABEL[id]}
-            </option>
-          ))}
-        </NativeSelect>
-      </div>
-      <Button type="submit">让 Jev 判断</Button>
+      <Button type="submit">让 Jev 判断三档</Button>
     </form>
   );
 }
@@ -95,7 +79,7 @@ export function DirectionResult({
             {STANCE_LABEL[decision.stance]}
           </span>
           <Badge variant="outline">{tape.symbol}</Badge>
-          <Badge variant="secondary">{tape.horizon.label}</Badge>
+          <Badge variant="secondary">{tape.interval.label}</Badge>
         </CardTitle>
         <CardDescription>{decision.reason}</CardDescription>
       </CardHeader>
@@ -132,9 +116,9 @@ export function DirectionResult({
           <p className="text-sm text-muted-foreground">{tape.summary || "K 线还不够形成趋势投票。"}</p>
           <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
             <Fact label="现价" value={tape.lastClose == null ? "—" : tape.lastClose.toFixed(2)} />
-            <Fact label="1 日" value={pct(tape.change1dPct)} />
-            <Fact label="5 日" value={pct(tape.change5dPct)} />
-            <Fact label="20 日" value={pct(tape.change20dPct)} />
+            <Fact label={tape.returnLabels.one} value={pct(tape.change1BarPct)} />
+            <Fact label={tape.returnLabels.five} value={pct(tape.change5BarPct)} />
+            <Fact label={tape.returnLabels.twenty} value={pct(tape.change20BarPct)} />
             <Fact label="看多票" value={String(tape.upVotes)} />
             <Fact label="看空票" value={String(tape.downVotes)} />
           </dl>

@@ -14,10 +14,10 @@ export const DIRECTION_THRESHOLDS = {
 export function buildDirectionQuestions() {
   return {
     lean: choice(
-      "Using only the computed market facts in `tape`, which way do those facts lean over `tape.horizon`? Do not invent prices, news, or levels that are not in `tape`. Pick unclear when the facts are missing, mixed, or do not lean either way.",
+      "Using only the computed market facts in `tape`, which way do those facts lean over `tape.horizon.meaning` on the `tape.interval` bars? Do not invent prices, news, or levels that are not in `tape`. Pick unclear when the facts are missing, mixed, or do not lean either way.",
       {
-        up: "Most of the directional facts in `tape` — recent returns, regime votes, and the moving-average relationship — point toward a higher price over `tape.horizon`.",
-        down: "Most of the directional facts in `tape` — recent returns, regime votes, and the moving-average relationship — point toward a lower price over `tape.horizon`.",
+        up: "Most of the directional facts in `tape` — recent returns, regime votes, and the moving-average relationship — point toward a higher price over `tape.horizon.meaning`.",
+        down: "Most of the directional facts in `tape` — recent returns, regime votes, and the moving-average relationship — point toward a lower price over `tape.horizon.meaning`.",
         unclear:
           "The facts conflict, are missing, or do not lean either way. Use this instead of forcing up or down.",
       },

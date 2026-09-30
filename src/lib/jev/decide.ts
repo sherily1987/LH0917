@@ -52,9 +52,9 @@ export function decideDirection(tape: DirectionTape, answers: DirectionAnswers):
       reason: "事实没有站到同一边，先观望。",
     };
   }
-  const recentUp = (tape.change5dPct ?? 0) > 0;
+  const recentUp = (tape.change5BarPct ?? 0) > 0;
   const continuation =
-    (recentUp && lean.choice === "up") || (!recentUp && lean.choice === "down" && (tape.change5dPct ?? 0) < 0);
+    (recentUp && lean.choice === "up") || (!recentUp && lean.choice === "down" && (tape.change5BarPct ?? 0) < 0);
   if (answers.stretched.noul >= DIRECTION_THRESHOLDS.stretchedYes && continuation) {
     return {
       stance: "wait",
