@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
   Activity,
+  Bot,
   CandlestickChart,
   FlaskConical,
   LayoutDashboard,
@@ -30,6 +31,7 @@ const NAV = [
   { href: "/strategies", label: "策略", icon: FlaskConical },
   { href: "/backtest", label: "回测", icon: Activity },
   { href: "/portfolio", label: "组合", icon: Wallet },
+  { href: "/bot", label: "自动交易", icon: Bot },
 ];
 
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
