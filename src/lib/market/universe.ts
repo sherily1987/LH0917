@@ -33,7 +33,15 @@ export const UNIVERSE: Instrument[] = [
   { symbol: "BTC-USD", name: "Bitcoin", nameZh: "比特币", sector: "加密", assetClass: "crypto", basePrice: 68000 },
   { symbol: "ETH-USD", name: "Ethereum", nameZh: "以太坊", sector: "加密", assetClass: "crypto", basePrice: 3500 },
   { symbol: "SOL-USD", name: "Solana", nameZh: "索拉纳", sector: "加密", assetClass: "crypto", basePrice: 160 },
+  { symbol: "BNB-USD", name: "BNB", nameZh: "币安币", sector: "加密", assetClass: "crypto", basePrice: 600 },
+  { symbol: "XRP-USD", name: "XRP", nameZh: "瑞波币", sector: "加密", assetClass: "crypto", basePrice: 0.6 },
+  { symbol: "DOGE-USD", name: "Dogecoin", nameZh: "狗狗币", sector: "加密", assetClass: "crypto", basePrice: 0.15 },
+  { symbol: "ADA-USD", name: "Cardano", nameZh: "艾达币", sector: "加密", assetClass: "crypto", basePrice: 0.45 },
+  { symbol: "AVAX-USD", name: "Avalanche", nameZh: "雪崩", sector: "加密", assetClass: "crypto", basePrice: 30 },
+  { symbol: "LINK-USD", name: "Chainlink", nameZh: "Chainlink", sector: "加密", assetClass: "crypto", basePrice: 14 },
 ];
+
+export const CRYPTO_SYMBOLS = UNIVERSE.filter((item) => item.assetClass === "crypto").map((item) => item.symbol);
 
 export const INDEX_SYMBOLS = ["SPY", "QQQ", "DIA", "IWM"] as const;
 export const WATCHLIST_SYMBOLS = ["AAPL", "MSFT", "NVDA", "TSLA", "META", "AMZN", "BABA", "BTC-USD"] as const;
